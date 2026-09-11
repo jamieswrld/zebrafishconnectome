@@ -31,6 +31,15 @@ export function BrainExplorer() {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const restoredCamera = useRef(false);
+  /**
+   * Whether we have yet attempted to restore ?neuron= from the URL.
+   *
+   * Until we have, the selection -> URL effect must not run: on first paint the
+   * selection is empty while the URL names a neuron, so it would strip the
+   * parameter before restoration could read it, silently breaking every shared
+   * link.
+   */
+  const restoredSelection = useRef(false);
 
   const datasetId = useBrainStore((s) => s.datasetId);
   const display = useBrainStore((s) => s.display);
@@ -84,10 +93,13 @@ export function BrainExplorer() {
       const index = lookup.get(Number(asLoreId(urlNeuron)));
       if (index !== undefined) selectIndex(index);
     }
+    // Attempted, whether or not the neuron was present in this export.
+    restoredSelection.current = true;
   }, [loadStage, lookup, urlNeuron, urlCamera, selection.loreId, selectIndex]);
 
   // Push the selection into the URL without adding history entries per click.
   useEffect(() => {
+    if (!restoredSelection.current) return;
     const next = new URLSearchParams(params.toString());
     if (selection.loreId) next.set('neuron', selection.loreId);
     else next.delete('neuron');

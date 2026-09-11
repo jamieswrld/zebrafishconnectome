@@ -20,6 +20,7 @@ export interface DatasetManifest {
   readonly neuronCount: number;
   readonly files: {
     readonly neuronIndex: string;
+    /** Aggregated edge list, when the export includes published connectivity. */
     readonly connectivity?: string;
     readonly regions?: string;
   };

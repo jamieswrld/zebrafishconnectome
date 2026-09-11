@@ -20,13 +20,13 @@ is the foundation for that, built so the later parts can genuinely exist.
 Every number in this application carries an epistemic class, and the UI never
 lets those classes blur together:
 
-| Class | Meaning |
-|---|---|
-| `measured` | Directly observed in the source dataset. |
-| `derived` | Deterministically computed from measured data. |
-| `predicted` | Output of a forecasting model. Not an observation. |
-| `simulated` | Output of a computational model of the connectome. |
-| `inferred` | Our interpretation of a pattern. The weakest claim. |
+| Class       | Meaning                                             |
+| ----------- | --------------------------------------------------- |
+| `measured`  | Directly observed in the source dataset.            |
+| `derived`   | Deterministically computed from measured data.      |
+| `predicted` | Output of a forecasting model. Not an observation.  |
+| `simulated` | Output of a computational model of the connectome.  |
+| `inferred`  | Our interpretation of a pattern. The weakest claim. |
 
 Two consequences that shape the whole codebase:
 
@@ -52,31 +52,64 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
-Out of the box you get the **development sample**: a deterministic synthetic
-population with the real schema, clearly badged as not biological. No
-credentials needed.
+Out of the box you get **real Fish1 data** — no credentials, no setup. The
+default dataset is built from the circuit-analysis packages published with the
+resource paper: 30,346 soma with stable lore IDs, molecular cell types, 64-bit
+root IDs and source voxel coordinates, plus 13,813 measured synaptic edges.
 
 ```
-/                                    intro
-/brain                               explorer (development sample)
-/brain?dataset=benchmark-200000      200k synthetic soma
-/brain?dataset=fish1                 real Fish1 (needs setup, below)
-/brain?debug=1                       diagnostics panel
-/data                                datasets, provenance, live access status
+/                                       intro
+/brain                                  explorer (real Fish1, published export)
+/brain?neuron=186187                    deep-link to a real, well-connected neuron
+/brain?dataset=fish1                    whole-brain Fish1 (needs a CAVE token)
+/brain?dataset=dev-sample               synthetic stand-in, badged as such
+/brain?dataset=benchmark-200000         200k synthetic soma
+/brain?debug=1                          diagnostics panel
+/data                                   datasets, provenance, live access status
 ```
 
 ### Controls
 
-| Input | Action |
-|---|---|
-| drag | orbit |
-| shift-drag / middle-drag | pan |
-| wheel / pinch | zoom |
-| click | select neuron |
-| `/` or `Ctrl`/`Cmd`+`K` | search by identifier |
-| `F` | focus selected · `R` reset camera |
-| `[` `]` | toggle panels · `\` distraction-free |
-| `Esc` | clear selection |
+| Input                    | Action                               |
+| ------------------------ | ------------------------------------ |
+| drag                     | orbit                                |
+| shift-drag / middle-drag | pan                                  |
+| wheel / pinch            | zoom                                 |
+| click                    | select neuron                        |
+| `/` or `Ctrl`/`Cmd`+`K`  | search by identifier                 |
+| `F`                      | focus selected · `R` reset camera    |
+| `[` `]`                  | toggle panels · `\` distraction-free |
+| `Esc`                    | clear selection                      |
+
+---
+
+## Datasets
+
+| Dataset                      | Real?        | Credentials | Coverage                                        |
+| ---------------------------- | ------------ | ----------- | ----------------------------------------------- |
+| `fish1-released` _(default)_ | ✅ measured  | none        | 30,346 soma + 13,813 edges, HMI analysis region |
+| `fish1`                      | ✅ measured  | CAVE token  | whole brain, >180k soma, ~30M synapses          |
+| `dev-sample`, `benchmark-*`  | ❌ generated | none        | badged `NOT BIOLOGICAL DATA`                    |
+
+### `fish1-released` — real data, zero setup
+
+The Fish1 release ships `HMI_analysis.zip` and `TEN_analysis.zip` alongside the
+paper. Between them they contain a CAVE `somas` export and real per-neuron
+synaptic partner lists, all openly downloadable. One script turns them into the
+application's binary artefacts:
+
+```bash
+python pipeline/fish1/import_released.py
+```
+
+The output is committed, so a clone or a deploy already has it.
+
+Its limits are stated in the UI rather than smoothed over:
+
+- It covers the **HMI analysis box, not the whole brain**.
+- Connectivity was published only for the ~1.1k neurons in the TEN/DMV study.
+  Ask any other neuron for its partners and you get
+  **"no connectivity was published for this cell"** — never a fabricated `0`.
 
 ---
 
@@ -148,15 +181,15 @@ once. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Environment variables
 
-| Variable | Purpose |
-|---|---|
-| `CAVE_TOKEN` | Fish1 access token. **Server only. Never commit.** |
-| `CAVE_GLOBAL_URL` | CAVE global/auth server. Default `https://global.brain-wire-test.org` |
-| `CAVE_LOCAL_URL` | Chunked graph + skeleton cache. Default `https://pcgv3local.brain-wire-test.org` |
-| `FISH1_DATASTACK` | Default `fish1_full` |
-| `FISH1_PCG_TABLE` | Default `fish1_v250915` |
-| `FISH1_MATERIALIZATION_VERSION` | Pin a version for reproducibility. Empty = latest. |
-| `CAVE_CACHE_TTL_SECONDS` | Upstream cache TTL. Default `900`. |
+| Variable                        | Purpose                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| `CAVE_TOKEN`                    | Fish1 access token. **Server only. Never commit.**                               |
+| `CAVE_GLOBAL_URL`               | CAVE global/auth server. Default `https://global.brain-wire-test.org`            |
+| `CAVE_LOCAL_URL`                | Chunked graph + skeleton cache. Default `https://pcgv3local.brain-wire-test.org` |
+| `FISH1_DATASTACK`               | Default `fish1_full`                                                             |
+| `FISH1_PCG_TABLE`               | Default `fish1_v250915`                                                          |
+| `FISH1_MATERIALIZATION_VERSION` | Pin a version for reproducibility. Empty = latest.                               |
+| `CAVE_CACHE_TTL_SECONDS`        | Upstream cache TTL. Default `900`.                                               |
 
 ---
 
@@ -179,13 +212,13 @@ Measured on an **NVIDIA Lovelace GPU via WebGPU**, 1600×900, vsync disabled,
 continuous rendering forced (`?bench=1`) so idle frames cannot inflate the
 result:
 
-| Soma | Render FPS (median) | CPU frame | GPU buffers | Load |
-|---:|---:|---:|---:|---:|
-| 10,000 | 4861 | 0.03 ms | 0.23 MB | 196 ms |
-| 50,000 | 4332 | 0.03 ms | 1.14 MB | 133 ms |
-| 100,000 | 4493 | 0.03 ms | 2.29 MB | 144 ms |
-| 200,000 | 4396 | 0.05 ms | 4.58 MB | 162 ms |
-| 500,000 | 1930 | 0.24 ms | 11.44 MB | 390 ms |
+|    Soma | Render FPS (median) | CPU frame | GPU buffers |   Load |
+| ------: | ------------------: | --------: | ----------: | -----: |
+|  10,000 |                4861 |   0.03 ms |     0.23 MB | 196 ms |
+|  50,000 |                4332 |   0.03 ms |     1.14 MB | 133 ms |
+| 100,000 |                4493 |   0.03 ms |     2.29 MB | 144 ms |
+| 200,000 |                4396 |   0.05 ms |     4.58 MB | 162 ms |
+| 500,000 |                1930 |   0.24 ms |    11.44 MB | 390 ms |
 
 200,000 soma — Fish1's order of magnitude — draws in roughly 0.23 ms per frame,
 about 70× under a 60 Hz budget, in **2 draw calls** at any population size.
@@ -224,7 +257,7 @@ Stated plainly, because a disabled control is worth more than a fake one:
   morphology in the viewport is the next milestone.
 - **Depth > 1 tracing** — the traversal engine and its limits are implemented
   and tested; the UI currently drives depth 1.
-- **ZAPBench** — typed adapter boundary only. It is a *different animal* from
+- **ZAPBench** — typed adapter boundary only. It is a _different animal_ from
   Fish1; there is no cell-level correspondence and the app will not invent one.
 - **Fire&Wire** — restricted. This repository holds none of that data, fetches
   none of it, and contains no endpoints for it.
@@ -233,10 +266,13 @@ Stated plainly, because a disabled control is worth more than a fake one:
 
 ## Data attribution
 
-This application does not own or redistribute any third-party dataset.
+This application does not own any third-party dataset. It ships one derived
+artefact: `public/datasets/fish1-released/`, built from the openly published
+Fish1 analysis packages and redistributed under their open-access terms with
+the required citation below, which also travels in the artefact manifest.
 
-> Petkova, M. D., Januszewski, M., et al. (2025). *A connectomic resource for
-> neural cataloguing and circuit dissection of the larval zebrafish brain.*
+> Petkova, M. D., Januszewski, M., et al. (2025). _A connectomic resource for
+> neural cataloguing and circuit dissection of the larval zebrafish brain._
 > bioRxiv.
 
 Fish1 is open access and **requires citation**. See

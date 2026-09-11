@@ -355,7 +355,10 @@ export const BENCHMARK_SIZES = [10_000, 50_000, 100_000, 200_000, 500_000] as co
 
 export function createBenchmarkAdapter(count: number, seed = 20250610): SyntheticAdapter {
   return new SyntheticAdapter({
-    id: 'synthetic-benchmark',
+    // MUST match the registry key (see registry.ts), otherwise the dataset
+    // picker cannot match it to an <option> and silently displays a different
+    // dataset's name over synthetic data.
+    id: `benchmark-${count}`,
     title: `Synthetic benchmark (${count.toLocaleString()} soma)`,
     count,
     seed,

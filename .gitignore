@@ -16,8 +16,13 @@ cave-secret.json
 # Only small generated manifests are tracked; binaries are built locally.
 data/raw/
 data/cache/
-public/datasets/*/*.bin
+# The token-derived whole-brain export is large and rebuildable; never commit it.
 public/datasets/fish1/
+# The published circuit-analysis export IS tracked (see pipeline/fish1/
+# import_released.py): it is ~1 MB, derived from open-access data with
+# attribution, and is what lets the deployment show real neurons with no
+# credentials.
+!public/datasets/fish1-released/
 pipeline/**/out/
 pipeline/**/__pycache__/
 *.swc

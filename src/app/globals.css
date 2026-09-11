@@ -364,6 +364,15 @@ a:hover {
   border-color: currentColor;
 }
 
+/*
+ * Lift the whole row when checked. Cell-type rows set their own colour inline
+ * (which wins over this rule), so they keep their semantic hue while generic
+ * toggles become clearly legible instead of a dim square on a dim ground.
+ */
+.toggle:has(input:checked) {
+  color: var(--text);
+}
+
 .toggle__count {
   margin-left: auto;
   font-family: var(--font-mono);

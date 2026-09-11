@@ -1,5 +1,6 @@
 import { registerAdapter, createAdapter, type BrainDatasetAdapter } from '@/core/adapter';
 import { Fish1Adapter } from './fish1/adapter';
+import { Fish1ReleasedAdapter, FISH1_RELEASED_ID } from './fish1/released-adapter';
 import { FireWireAdapter } from './firewire/adapter';
 import { ZapBenchAdapter } from './zapbench/adapter';
 import {
@@ -17,7 +18,12 @@ import { FISH1_DATASET_ID } from './fish1/constants';
  * (`/brain?dataset=...`), which keeps research states shareable.
  */
 
-export const DEFAULT_DATASET_ID = 'dev-sample';
+/**
+ * Real Fish1 data is the default. The published circuit-analysis export needs
+ * no credentials, so a first-time visitor sees actual neurons rather than a
+ * synthetic stand-in.
+ */
+export const DEFAULT_DATASET_ID = FISH1_RELEASED_ID;
 
 export interface DatasetOption {
   readonly id: string;
@@ -30,9 +36,15 @@ export interface DatasetOption {
 /** Datasets offered in the UI picker, in display order. */
 export const DATASET_OPTIONS: readonly DatasetOption[] = [
   {
+    id: FISH1_RELEASED_ID,
+    label: 'FISH1 · PUBLISHED',
+    note: 'Real Fish1 soma and synapses from the released circuit analysis. HMI region, no credentials needed.',
+    isRealBiology: true,
+  },
+  {
     id: FISH1_DATASET_ID,
-    label: 'FISH1',
-    note: 'Structural connectome. Requires a pipeline export and a CAVE token.',
+    label: 'FISH1 · FULL (CAVE)',
+    note: 'Whole-brain structural connectome. Requires a CAVE token and a pipeline export.',
     isRealBiology: true,
   },
   {
@@ -55,6 +67,7 @@ export const DATASET_OPTIONS: readonly DatasetOption[] = [
   },
 ];
 
+registerAdapter(FISH1_RELEASED_ID, () => new Fish1ReleasedAdapter());
 registerAdapter(FISH1_DATASET_ID, () => new Fish1Adapter());
 registerAdapter('zapbench', () => new ZapBenchAdapter());
 registerAdapter('firewire', () => new FireWireAdapter());

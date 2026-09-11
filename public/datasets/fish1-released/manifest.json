@@ -1,0 +1,19 @@
+{
+  "dataset": "fish1-released",
+  "version": "v1",
+  "materializationVersion": null,
+  "generatedAt": "2026-09-11T16:50:09.573355+00:00",
+  "neuronCount": 30346,
+  "files": {
+    "neuronIndex": "/datasets/fish1-released/v1/neurons.bin",
+    "connectivity": "/datasets/fish1-released/v1/connectivity.json"
+  },
+  "bytes": {
+    "neuronIndex": 850712,
+    "connectivity": 253799
+  },
+  "checksums": {
+    "neuronIndex": "fnv1a32:d8157143"
+  },
+  "notes": "Derived from the published Fish1 analysis packages (HMI + TEN), which require no credentials. Positions are source voxel coordinates at 16.0x16.0x30.0 nm. Covers the HMI analysis box, not the whole brain. Petkova, M. D., Januszewski, M., et al. (2025). A connectomic resource for neural cataloguing and circuit dissection of the larval zebrafish brain. bioRxiv."
+}

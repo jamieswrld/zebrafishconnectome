@@ -178,6 +178,22 @@ export class BrainRenderer {
   /* Data                                                                    */
   /* ---------------------------------------------------------------------- */
 
+  /**
+   * Distance at which a bounding sphere of `radius` fits on screen.
+   *
+   * Uses the NARROWER of the vertical and horizontal fields of view. A brain is
+   * elongated, and a tall/narrow viewport is horizontally tighter than fovY
+   * suggests, so framing on fovY alone let the population overflow the sides.
+   */
+  private framingDistance(radius: number): number {
+    const fovY = this.camera.desired.fovY;
+    const aspect = this.canvas.width / Math.max(this.canvas.height, 1);
+    const fovX = 2 * Math.atan(Math.tan(fovY / 2) * aspect);
+    const fov = Math.min(fovY, fovX);
+    // 1.12 leaves a small margin so soma do not touch the edge.
+    return (radius / Math.sin(fov / 2)) * 1.12;
+  }
+
   setNeuronIndex(index: NeuronIndex): void {
     const buffers = this.soma.build(index);
     this.backend?.uploadSoma(buffers);
@@ -187,7 +203,7 @@ export class BrainRenderer {
     this.lod.setSceneRadius(radius);
 
     const center = boundsCenter(this.sceneBounds);
-    this.camera.focus([center[0], center[1], center[2]], radius * 2.4);
+    this.camera.focus([center[0], center[1], center[2]], this.framingDistance(radius));
     this.camera.applyPreset(DEFAULT_VIEW);
     this.camera.snap();
 
@@ -329,7 +345,7 @@ export class BrainRenderer {
   resetCamera(): void {
     const center = boundsCenter(this.sceneBounds);
     const radius = Math.max(boundsRadius(this.sceneBounds), 1e-4);
-    this.camera.focus([center[0], center[1], center[2]], radius * 2.4);
+    this.camera.focus([center[0], center[1], center[2]], this.framingDistance(radius));
     this.camera.applyPreset(DEFAULT_VIEW);
     this.requestRender();
   }
@@ -458,15 +474,20 @@ export class BrainRenderer {
       this.visibleCountDirty = false;
     }
 
+    // When no frame was drawn in this window, per-frame counters from an older
+    // frame are stale; reporting them next to "render fps 0" reads as a
+    // contradiction. Resident buffer size is still current, so it is kept.
+    const idle = this.renderFps === 0;
+
     this.callbacks.onStats?.({
       fps: this.fps,
       renderFps: this.renderFps,
       cpuFrameMs,
       gpuFrameMs: this.lastStats.gpuTimeMs,
-      drawCalls: this.lastStats.drawCalls,
+      drawCalls: idle ? 0 : this.lastStats.drawCalls,
       somaTotal: this.soma.count,
       somaVisible: this.cachedVisibleCount,
-      lineSegments: this.lastStats.lineSegments,
+      lineSegments: idle ? 0 : this.lastStats.lineSegments,
       gpuBufferBytes: this.lastStats.gpuBufferBytes,
       api: this.api,
       device: this.deviceDescription,
