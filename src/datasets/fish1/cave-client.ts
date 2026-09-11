@@ -73,7 +73,7 @@ export function missingTokenError(config: CaveConfig): DataError {
   return new DataError({
     code: 'auth_missing',
     message: 'No CAVE_TOKEN is configured on the server.',
-    detail: `Fish1 requires an access token. Obtain one at ${config.globalUrl}${CAVE_TOKEN_SETTINGS_PATH} and set CAVE_TOKEN in .env.local, then restart the server.`,
+    detail: `Fish1 requires an access token. Obtain one at ${config.globalUrl}${CAVE_TOKEN_SETTINGS_PATH}, then set CAVE_TOKEN in the server environment (.env.local when running locally, or a project environment variable when deployed) and restart.`,
     datasetId: FISH1_DATASET_ID,
   });
 }

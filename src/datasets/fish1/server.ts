@@ -69,7 +69,7 @@ export async function fish1Metadata(): Promise<DatasetMetadata> {
     unavailable = {
       reason: 'not-configured',
       message: 'No CAVE token is configured, so Fish1 cannot be queried.',
-      remediation: `Obtain a token at ${config.globalUrl}/sticky_auth/settings/tokens and set CAVE_TOKEN in .env.local.`,
+      remediation: `Obtain a token at ${config.globalUrl}/sticky_auth/settings/tokens, then set CAVE_TOKEN in the server environment (.env.local locally, or a project environment variable when deployed).`,
     };
   } else {
     try {

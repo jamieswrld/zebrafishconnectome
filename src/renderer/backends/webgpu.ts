@@ -255,7 +255,6 @@ export class WebGPUBackend implements RendererBackend {
   private heightPx = 1;
   private bufferBytes = 0;
   private disposed = false;
-  private pickInFlight = false;
 
   private constructor(
     device: GPUDevice,
@@ -610,89 +609,100 @@ export class WebGPUBackend implements RendererBackend {
     return stats;
   }
 
+  /**
+   * Buffer mapping is asynchronous, so two picks must not overlap on the
+   * read-back buffer. They are SERIALISED rather than dropped: hover picking
+   * runs continuously, so discarding a pick while one is in flight meant a
+   * click landing mid-hover was silently ignored and selection felt broken.
+   *
+   * The queue stays short because hover picks are throttled upstream and only
+   * one can be outstanding at a time.
+   */
+  private pickQueue: Promise<number> = Promise.resolve(-1);
+
   async pick(xPx: number, yPx: number, radiusPx: number): Promise<number> {
+    const run = this.pickQueue.catch(() => -1).then(() => this.runPick(xPx, yPx, radiusPx));
+    // Never let a rejection poison the chain for subsequent picks.
+    this.pickQueue = run.catch(() => -1);
+    return run;
+  }
+
+  private async runPick(xPx: number, yPx: number, radiusPx: number): Promise<number> {
     if (this.disposed || this.somaCount === 0 || !this.staticBuffer || !this.lastParams) {
       return -1;
     }
-    // Buffer mapping is asynchronous; overlapping picks would race on it.
-    if (this.pickInFlight) return -1;
-    this.pickInFlight = true;
-    try {
-      this.ensurePickTargets();
-      const device = this.device;
-      const r = Math.max(0, Math.floor(radiusPx));
-      const size = r * 2 + 1;
-      const x0 = Math.max(0, Math.min(this.widthPx - size, Math.floor(xPx) - r));
-      const y0 = Math.max(0, Math.min(this.heightPx - size, Math.floor(yPx) - r));
+    this.ensurePickTargets();
+    const device = this.device;
+    const r = Math.max(0, Math.floor(radiusPx));
+    const size = r * 2 + 1;
+    const x0 = Math.max(0, Math.min(this.widthPx - size, Math.floor(xPx) - r));
+    const y0 = Math.max(0, Math.min(this.heightPx - size, Math.floor(yPx) - r));
 
-      // copyTextureToBuffer requires bytesPerRow to be a multiple of 256.
-      const bytesPerRow = Math.ceil((size * 4) / 256) * 256;
-      const needed = bytesPerRow * size;
-      if (!this.pickReadBuffer || this.pickReadBuffer.size < needed) {
-        this.pickReadBuffer?.destroy();
-        this.pickReadBuffer = device.createBuffer({
-          size: needed,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        });
-      }
-
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [
-          {
-            view: this.pickTexture!.createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
-            loadOp: 'clear',
-            storeOp: 'store',
-          },
-        ],
-        depthStencilAttachment: {
-          view: this.pickDepth!.createView(),
-          depthClearValue: 1,
-          depthLoadOp: 'clear',
-          depthStoreOp: 'store',
-        },
+    // copyTextureToBuffer requires bytesPerRow to be a multiple of 256.
+    const bytesPerRow = Math.ceil((size * 4) / 256) * 256;
+    const needed = bytesPerRow * size;
+    if (!this.pickReadBuffer || this.pickReadBuffer.size < needed) {
+      this.pickReadBuffer?.destroy();
+      this.pickReadBuffer = device.createBuffer({
+        size: needed,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
-      pass.setPipeline(this.pickPipeline);
-      pass.setBindGroup(0, this.bindGroup);
-      pass.setVertexBuffer(0, this.quadBuffer);
-      pass.setVertexBuffer(1, this.staticBuffer);
-      pass.setVertexBuffer(2, this.stateBuffer!);
-      pass.draw(6, this.somaCount);
-      pass.end();
+    }
 
-      encoder.copyTextureToBuffer(
-        { texture: this.pickTexture!, origin: { x: x0, y: y0 } },
-        { buffer: this.pickReadBuffer, bytesPerRow, rowsPerImage: size },
-        { width: size, height: size },
-      );
-      device.queue.submit([encoder.finish()]);
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: this.pickTexture!.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
+      depthStencilAttachment: {
+        view: this.pickDepth!.createView(),
+        depthClearValue: 1,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store',
+      },
+    });
+    pass.setPipeline(this.pickPipeline);
+    pass.setBindGroup(0, this.bindGroup);
+    pass.setVertexBuffer(0, this.quadBuffer);
+    pass.setVertexBuffer(1, this.staticBuffer);
+    pass.setVertexBuffer(2, this.stateBuffer!);
+    pass.draw(6, this.somaCount);
+    pass.end();
 
-      await this.pickReadBuffer.mapAsync(GPUMapMode.READ, 0, needed);
-      const copy = this.pickReadBuffer.getMappedRange(0, needed).slice(0);
-      this.pickReadBuffer.unmap();
+    encoder.copyTextureToBuffer(
+      { texture: this.pickTexture!, origin: { x: x0, y: y0 } },
+      { buffer: this.pickReadBuffer, bytesPerRow, rowsPerImage: size },
+      { width: size, height: size },
+    );
+    device.queue.submit([encoder.finish()]);
 
-      const rows = new Uint32Array(copy);
-      const stride = bytesPerRow / 4;
-      let best = -1;
-      let bestDist = Infinity;
-      for (let iy = 0; iy < size; iy++) {
-        for (let ix = 0; ix < size; ix++) {
-          const v = rows[iy * stride + ix];
-          if (v === 0) continue;
-          const dx = ix - r;
-          const dy = iy - r;
-          const d = dx * dx + dy * dy;
-          if (d < bestDist) {
-            bestDist = d;
-            best = v - 1;
-          }
+    await this.pickReadBuffer.mapAsync(GPUMapMode.READ, 0, needed);
+    const copy = this.pickReadBuffer.getMappedRange(0, needed).slice(0);
+    this.pickReadBuffer.unmap();
+
+    const rows = new Uint32Array(copy);
+    const stride = bytesPerRow / 4;
+    let best = -1;
+    let bestDist = Infinity;
+    for (let iy = 0; iy < size; iy++) {
+      for (let ix = 0; ix < size; ix++) {
+        const v = rows[iy * stride + ix];
+        if (v === 0) continue;
+        const dx = ix - r;
+        const dy = iy - r;
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) {
+          bestDist = d;
+          best = v - 1;
         }
       }
-      return best;
-    } finally {
-      this.pickInFlight = false;
     }
+    return best;
   }
 
   private ensurePickTargets(): void {
