@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-09-11T18:34:32.042Z",
+  "device": "nvidia lovelace",
+  "results": [
+    {
+      "key": "brain-200k",
+      "label": "200k soma",
+      "renderFpsMedian": 4049,
+      "renderFpsMin": 3912.5,
+      "cpuFrameMsMedian": 0.04,
+      "drawCalls": 2,
+      "meshTriangles": 0,
+      "somaTotal": "200,000",
+      "gpuBuffers": "4.58 MB",
+      "api": "webgpu",
+      "device": "nvidia lovelace",
+      "samples": 21
+    },
+    {
+      "key": "organism-200k",
+      "label": "200k soma + body",
+      "renderFpsMedian": 4089,
+      "renderFpsMin": 2477.5,
+      "cpuFrameMsMedian": 0.05,
+      "drawCalls": 4,
+      "meshTriangles": 6400,
+      "somaTotal": "200,000",
+      "gpuBuffers": "4.75 MB",
+      "api": "webgpu",
+      "device": "nvidia lovelace",
+      "samples": 21
+    },
+    {
+      "key": "brain-fish1",
+      "label": "fish1 released",
+      "renderFpsMedian": 4723.8,
+      "renderFpsMin": 1140,
+      "cpuFrameMsMedian": 0.04,
+      "drawCalls": 2,
+      "meshTriangles": 0,
+      "somaTotal": "30,346",
+      "gpuBuffers": "0.69 MB",
+      "api": "webgpu",
+      "device": "nvidia lovelace",
+      "samples": 21
+    },
+    {
+      "key": "organism-fish1",
+      "label": "fish1 + body",
+      "renderFpsMedian": 4358.9,
+      "renderFpsMin": 2945,
+      "cpuFrameMsMedian": 0.04,
+      "drawCalls": 4,
+      "meshTriangles": 6400,
+      "somaTotal": "30,346",
+      "gpuBuffers": "0.87 MB",
+      "api": "webgpu",
+      "device": "nvidia lovelace",
+      "samples": 21
+    }
+  ]
+}

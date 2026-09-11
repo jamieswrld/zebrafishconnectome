@@ -5,6 +5,7 @@ import { BrainRenderer, type RendererStats } from '@/renderer/BrainRenderer';
 import { AXIS_PRESETS } from '@/renderer/camera';
 import { detectGpuSupport, type GpuSupport } from '@/renderer/types';
 import { syncRendererWithState, useBrainStore } from '@/state/brainStore';
+import { syncOrganismWithRenderer } from '@/state/organismStore';
 import { rendererRef } from '@/state/rendererRef';
 import { DATA_ORIGIN_INFO } from '@/core/types';
 import { LOAD_STAGE_LABEL, type LoadStage } from '@/core/adapter';
@@ -92,6 +93,7 @@ export function BrainViewport({ debug }: { debug: boolean }) {
         // requested. Push whatever the store holds so the population is never
         // stranded because it arrived first.
         syncRendererWithState();
+        syncOrganismWithRenderer();
         setGpuReady(true);
       } catch (e) {
         setInitError(e instanceof Error ? e.message : String(e));

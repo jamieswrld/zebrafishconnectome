@@ -1,4 +1,5 @@
 import type { Mat4, Vec3f } from './math';
+import type { MaterialId, MeshGeometry } from '@/core/mesh';
 
 /**
  * Renderer contract.
@@ -89,17 +90,41 @@ export interface FrameParams {
   readonly globalDim: number;
   readonly activityEnabled: boolean;
   /**
+   * Camera orbit distance. The depth haze is computed RELATIVE to this, so the
+   * volumetric cue looks the same whether the camera is 4 units from a brain or
+   * 50 units from a whole animal. An absolute cue crushed the whole population
+   * to near-black as soon as the camera pulled out.
+   */
+  readonly cameraDistance: number;
+  /**
+   * Transform applied to every soma position at draw time.
+   *
+   * Measured coordinates are uploaded once and never rewritten; when the
+   * organism swims, its neurons move because this matrix moves. That keeps the
+   * "measured position is immutable, pose is presentation" rule true even while
+   * the body is being deformed and carried around a tank.
+   */
+  readonly somaModel?: Mat4;
+  /**
    * Draws the uploaded line set. Orientation axes and circuit edges are
    * composed into that one set by BrainRenderer, so the backend needs no
    * knowledge of either.
    */
   readonly showConnections: boolean;
+
+  /** Meshes to draw this frame (body, eyes, environment). */
+  readonly meshDraws?: readonly MeshDraw[];
+  /** Active clip planes, in render world space. */
+  readonly clipPlanes?: readonly ClipPlane[];
+  /** Whether clip planes also cut the soma cloud, not just surfaces. */
+  readonly clipAffectsSoma?: boolean;
 }
 
 export interface FrameStats {
   drawCalls: number;
   somaDrawn: number;
   lineSegments: number;
+  meshTriangles: number;
   /** Total bytes currently resident in GPU buffers, as reported by the backend. */
   gpuBufferBytes: number;
   /** GPU-side duration in ms when the backend can measure it, else null. */
@@ -123,6 +148,9 @@ export interface RendererBackend {
   resize(widthPx: number, heightPx: number): void;
 
   uploadSoma(buffers: SomaBufferSet): void;
+  /** Uploads (or replaces) a named mesh. Safe to call once per asset. */
+  uploadMesh(upload: MeshUpload): void;
+  removeMesh(id: string): void;
   /** Partial update of the state lane; avoids re-uploading positions on filter. */
   updateSomaState(state: Uint8Array): void;
   updateActivity(activity: Float32Array): void;
@@ -168,4 +196,92 @@ export async function detectGpuSupport(): Promise<GpuSupport> {
   }
 
   return { webgpu, webgl2, reason };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Meshes (Phase 2: body, eyes, environment)                                  */
+/* -------------------------------------------------------------------------- */
+
+/** How much of the body surface is drawn, and how solid it looks. */
+export type BodyDisplayMode = 'off' | 'ghost' | 'tissue' | 'solid' | 'xray';
+
+export interface BodyDisplayDescriptor {
+  readonly label: string;
+  /** Base skin opacity. */
+  readonly skinOpacity: number;
+  /** Rim/fresnel emphasis, which is what makes thin tissue read as tissue. */
+  readonly rim: number;
+  /** Draw the body BEFORE soma with depth writes, hiding what is inside. */
+  readonly occludesNeurons: boolean;
+  readonly description: string;
+}
+
+export const BODY_DISPLAY_MODES: Record<BodyDisplayMode, BodyDisplayDescriptor> = {
+  off: {
+    label: 'OFF',
+    skinOpacity: 0,
+    rim: 0,
+    occludesNeurons: false,
+    description: 'Brain only. Identical to the Phase 1 viewer.',
+  },
+  ghost: {
+    label: 'GHOST',
+    skinOpacity: 0.12,
+    rim: 0.65,
+    occludesNeurons: false,
+    description: 'A faint silhouette. Neurons dominate.',
+  },
+  tissue: {
+    label: 'TISSUE',
+    skinOpacity: 0.24,
+    rim: 0.7,
+    occludesNeurons: false,
+    description: 'Translucent tissue. The brain stays visible inside.',
+  },
+  solid: {
+    label: 'SOLID',
+    skinOpacity: 0.97,
+    rim: 0.3,
+    occludesNeurons: true,
+    description: 'Opaque external surface. Neurons are hidden inside the animal.',
+  },
+  xray: {
+    label: 'XRAY',
+    skinOpacity: 0.05,
+    rim: 1.0,
+    occludesNeurons: false,
+    description: 'Edges only, emphasising the nervous system and the body outline.',
+  },
+};
+
+/**
+ * A half-space clip. A fragment is discarded when
+ *   dot(position, normal) + distance > 0
+ * so the plane normal points at the half that gets removed.
+ */
+export interface ClipPlane {
+  readonly normal: Vec3f;
+  readonly distance: number;
+}
+
+export const MAX_CLIP_PLANES = 4;
+
+export interface MeshUpload {
+  readonly id: string;
+  readonly geometry: MeshGeometry;
+}
+
+export interface MeshDraw {
+  readonly meshId: string;
+  /** Rest space -> render world space. */
+  readonly modelMatrix: Mat4;
+  /** MAX_BONES * 16 floats, or null for a rigid mesh. */
+  readonly boneMatrices: Float32Array | null;
+  readonly material: MaterialId;
+  readonly opacity: number;
+  readonly rim: number;
+  /** Multiplied into the material base colour. */
+  readonly tint: Vec3f;
+  /** Draw with depth writes enabled, before the soma pass. */
+  readonly occluding: boolean;
 }

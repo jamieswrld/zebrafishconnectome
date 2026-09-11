@@ -6,7 +6,14 @@ import type {
   RendererBackend,
   SomaBufferSet,
 } from '../types';
-import { COLOR_MODE_CODE, SOMA_STRIDE_BYTES } from '../types';
+import {
+  COLOR_MODE_CODE,
+  MAX_CLIP_PLANES,
+  SOMA_STRIDE_BYTES,
+  type MeshDraw,
+  type MeshUpload,
+} from '../types';
+import { LIGHT_DIRECTION, MATERIALS } from './materials';
 import { PALETTE_GLSL } from './palette';
 
 /**
@@ -31,6 +38,7 @@ layout(location = 2) in uint a_state;
 layout(location = 3) in float a_activity;
 
 uniform mat4 u_viewProj;
+uniform mat4 u_somaModel;
 uniform vec3 u_eye;
 uniform float u_pointScale;
 uniform float u_somaRadius;
@@ -43,6 +51,9 @@ uniform float u_globalDim;
 uniform int u_activityEnabled;
 uniform vec3 u_background;
 uniform float u_depthCue;
+uniform float u_camDistance;
+uniform vec4 u_clipPlanes[4];
+uniform int u_clipCount;
 
 out vec4 v_color;
 flat out int v_discard;
@@ -74,7 +85,21 @@ void main() {
   }
   v_discard = 0;
 
-  vec4 clip = u_viewProj * vec4(a_position, 1.0);
+  vec3 worldPos = (u_somaModel * vec4(a_position, 1.0)).xyz;
+
+  // Anatomical clipping can cut the soma cloud too, so a sectioned body and
+  // the neurons inside it are cut by the same plane.
+  for (int i = 0; i < 4; i++) {
+    if (i >= u_clipCount) break;
+    if (dot(worldPos, u_clipPlanes[i].xyz) + u_clipPlanes[i].w > 0.0) {
+      v_discard = 1;
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+  }
+
+  vec4 clip = u_viewProj * vec4(worldPos, 1.0);
   gl_Position = clip;
 
   float dist = max(clip.w, 1e-4);
@@ -112,9 +137,11 @@ void main() {
     sizePx *= 2.6;
   }
 
-  // Distance haze: gives the point cloud genuine volumetric depth without any
-  // post-processing pass.
-  float haze = 1.0 - clamp((dist - 0.4) * u_depthCue, 0.0, 0.72);
+  // Distance haze, relative to the camera's own distance so the cue is
+  // scale-invariant: the same depth impression at brain scale and whole-animal
+  // scale.
+  float relative = dist / max(u_camDistance, 1e-4);
+  float haze = 1.0 - clamp((relative - 0.72) * u_depthCue, 0.0, 0.72);
   if (!selected && !hovered) brightness *= haze;
 
   color = mix(u_background, color, clamp(brightness, 0.0, 1.0));
@@ -139,6 +166,86 @@ void main() {
   fragColor = vec4(v_color.rgb * (0.55 + 0.45 * edge), 1.0);
 }`;
 
+const MESH_VERT = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec3 a_position;
+layout(location = 1) in vec3 a_normal;
+layout(location = 2) in uvec4 a_boneIndex;
+layout(location = 3) in vec4 a_boneWeight;
+
+uniform mat4 u_viewProj;
+uniform mat4 u_model;
+uniform mat4 u_bones[16];
+uniform int u_skinned;
+
+out vec3 v_normal;
+out vec3 v_worldPos;
+
+void main() {
+  vec4 rest = vec4(a_position, 1.0);
+  vec3 normal = a_normal;
+
+  if (u_skinned == 1) {
+    // Two influences per vertex is enough for a body that bends only laterally,
+    // and keeps the vertex buffer at 8 bytes of skinning data.
+    mat4 skin = u_bones[a_boneIndex.x] * a_boneWeight.x
+              + u_bones[a_boneIndex.y] * a_boneWeight.y;
+    rest = skin * rest;
+    normal = mat3(skin) * normal;
+  }
+
+  vec4 world = u_model * rest;
+  v_worldPos = world.xyz;
+  v_normal = normalize(mat3(u_model) * normal);
+  gl_Position = u_viewProj * world;
+}`;
+
+const MESH_FRAG = `#version 300 es
+precision highp float;
+
+in vec3 v_normal;
+in vec3 v_worldPos;
+
+uniform vec3 u_baseColor;
+uniform float u_opacity;
+uniform float u_rim;
+uniform vec3 u_eye;
+uniform vec3 u_lightDir;
+uniform vec4 u_clipPlanes[4];
+uniform int u_clipCount;
+uniform float u_specular;
+
+out vec4 fragColor;
+
+void main() {
+  for (int i = 0; i < 4; i++) {
+    if (i >= u_clipCount) break;
+    if (dot(v_worldPos, u_clipPlanes[i].xyz) + u_clipPlanes[i].w > 0.0) discard;
+  }
+
+  vec3 viewDir = normalize(u_eye - v_worldPos);
+  // Two-sided: a translucent shell is seen from inside as often as outside.
+  vec3 n = normalize(v_normal) * (gl_FrontFacing ? 1.0 : -1.0);
+
+  float lambert = max(dot(n, normalize(u_lightDir)), 0.0);
+  float ambient = 0.34;
+
+  // Fresnel: thin tissue is most opaque where we look along its surface, which
+  // is what makes a translucent body read as a body rather than coloured fog.
+  float facing = 1.0 - max(dot(n, viewDir), 0.0);
+  float fresnel = pow(facing, 2.4);
+
+  vec3 halfway = normalize(normalize(u_lightDir) + viewDir);
+  float spec = pow(max(dot(n, halfway), 0.0), 48.0) * u_specular;
+
+  vec3 color = u_baseColor * (ambient + lambert * 0.72) + vec3(spec);
+  color += u_baseColor * fresnel * u_rim * 1.15;
+
+  float alpha = clamp(u_opacity + fresnel * u_rim * 0.42, 0.0, 1.0);
+  fragColor = vec4(color, alpha);
+}`;
+
 const PICK_VERT = `#version 300 es
 precision highp float;
 precision highp int;
@@ -148,6 +255,7 @@ layout(location = 1) in uint a_packed;
 layout(location = 2) in uint a_state;
 
 uniform mat4 u_viewProj;
+uniform mat4 u_somaModel;
 uniform float u_pointScale;
 uniform float u_somaRadius;
 uniform float u_minPointPx;
@@ -168,7 +276,7 @@ void main() {
     return;
   }
 
-  vec4 clip = u_viewProj * vec4(a_position, 1.0);
+  vec4 clip = u_viewProj * (u_somaModel * vec4(a_position, 1.0));
   gl_Position = clip;
   float dist = max(clip.w, 1e-4);
   float sizePx = (u_somaRadius * 2.0 * u_pointScale) / dist;
@@ -249,6 +357,17 @@ function uniforms(
   return map;
 }
 
+interface GlMesh {
+  vao: WebGLVertexArrayObject;
+  buffers: WebGLBuffer[];
+  indexBuffer: WebGLBuffer;
+  indexType: number;
+  skinned: boolean;
+  subMeshes: MeshUpload['geometry']['subMeshes'];
+  triangleCount: number;
+  bytes: number;
+}
+
 export class WebGL2Backend implements RendererBackend {
   readonly api = 'webgl2' as const;
   readonly deviceDescription: string;
@@ -273,6 +392,11 @@ export class WebGL2Backend implements RendererBackend {
   private linePositionBuffer: WebGLBuffer | null = null;
   private lineColorBuffer: WebGLBuffer | null = null;
   private lineSegments = 0;
+
+  private meshProgram: WebGLProgram;
+  private meshUniforms: UniformMap;
+  private meshes = new Map<string, GlMesh>();
+  private meshBytes = 0;
 
   private pickFbo: WebGLFramebuffer | null = null;
   private pickTexture: WebGLTexture | null = null;
@@ -315,6 +439,9 @@ export class WebGL2Backend implements RendererBackend {
     this.lineProgram = link(gl, LINE_VERT, LINE_FRAG);
 
     this.somaUniforms = uniforms(gl, this.somaProgram, [
+      'u_clipPlanes',
+      'u_clipCount',
+      'u_somaModel',
       'u_viewProj',
       'u_eye',
       'u_pointScale',
@@ -328,9 +455,11 @@ export class WebGL2Backend implements RendererBackend {
       'u_activityEnabled',
       'u_background',
       'u_depthCue',
+      'u_camDistance',
     ]);
     this.pickUniforms = uniforms(gl, this.pickProgram, [
       'u_viewProj',
+      'u_somaModel',
       'u_pointScale',
       'u_somaRadius',
       'u_minPointPx',
@@ -338,6 +467,22 @@ export class WebGL2Backend implements RendererBackend {
       'u_contextMode',
     ]);
     this.lineUniforms = uniforms(gl, this.lineProgram, ['u_viewProj']);
+
+    this.meshProgram = link(gl, MESH_VERT, MESH_FRAG);
+    this.meshUniforms = uniforms(gl, this.meshProgram, [
+      'u_viewProj',
+      'u_model',
+      'u_bones',
+      'u_skinned',
+      'u_baseColor',
+      'u_opacity',
+      'u_rim',
+      'u_eye',
+      'u_lightDir',
+      'u_clipPlanes',
+      'u_clipCount',
+      'u_specular',
+    ]);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -382,6 +527,176 @@ export class WebGL2Backend implements RendererBackend {
     gl.bindVertexArray(null);
     this.bufferBytes =
       buffers.staticData.byteLength + buffers.state.byteLength + buffers.activity.byteLength;
+  }
+
+  uploadMesh(upload: MeshUpload): void {
+    const gl = this.gl;
+    this.removeMesh(upload.id);
+    const g = upload.geometry;
+
+    const vao = gl.createVertexArray();
+    if (!vao) throw new Error('Failed to create mesh VAO.');
+    gl.bindVertexArray(vao);
+
+    const buffers: WebGLBuffer[] = [];
+    const attrib = (
+      location: number,
+      data: ArrayBufferView,
+      size: number,
+      type: number,
+      integer: boolean,
+      normalized = false,
+    ) => {
+      const buffer = gl.createBuffer();
+      if (!buffer) throw new Error('Failed to create mesh buffer.');
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(location);
+      if (integer) gl.vertexAttribIPointer(location, size, type, 0, 0);
+      else gl.vertexAttribPointer(location, size, type, normalized, 0, 0);
+      buffers.push(buffer);
+    };
+
+    attrib(0, g.positions, 3, gl.FLOAT, false);
+    attrib(1, g.normals, 3, gl.FLOAT, false);
+
+    const skinned = Boolean(g.boneIndices && g.boneWeights);
+    if (skinned) {
+      attrib(2, g.boneIndices!, 4, gl.UNSIGNED_BYTE, true);
+      // Weights are unorm8: normalized so they arrive in the shader as 0..1.
+      attrib(3, g.boneWeights!, 4, gl.UNSIGNED_BYTE, false, true);
+    }
+
+    const indexBuffer = gl.createBuffer();
+    if (!indexBuffer) throw new Error('Failed to create mesh index buffer.');
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, g.indices, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+
+    const bytes =
+      g.positions.byteLength +
+      g.normals.byteLength +
+      g.indices.byteLength +
+      (g.boneIndices?.byteLength ?? 0) +
+      (g.boneWeights?.byteLength ?? 0);
+
+    this.meshes.set(upload.id, {
+      vao,
+      buffers,
+      indexBuffer,
+      indexType: g.indices instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT,
+      skinned,
+      subMeshes: g.subMeshes,
+      triangleCount: g.indices.length / 3,
+      bytes,
+    });
+    this.meshBytes += bytes;
+  }
+
+  removeMesh(id: string): void {
+    const existing = this.meshes.get(id);
+    if (!existing) return;
+    const gl = this.gl;
+    gl.deleteVertexArray(existing.vao);
+    for (const b of existing.buffers) gl.deleteBuffer(b);
+    gl.deleteBuffer(existing.indexBuffer);
+    this.meshBytes -= existing.bytes;
+    this.meshes.delete(id);
+  }
+
+  /** Writes the shared clip-plane uniforms for whichever program is bound. */
+  private setClipUniforms(map: UniformMap, params: FrameParams, enabled: boolean): void {
+    const gl = this.gl;
+    const planes = enabled ? (params.clipPlanes ?? []) : [];
+    const count = Math.min(planes.length, MAX_CLIP_PLANES);
+    const data = new Float32Array(MAX_CLIP_PLANES * 4);
+    for (let i = 0; i < count; i++) {
+      data[i * 4] = planes[i].normal[0];
+      data[i * 4 + 1] = planes[i].normal[1];
+      data[i * 4 + 2] = planes[i].normal[2];
+      data[i * 4 + 3] = planes[i].distance;
+    }
+    gl.uniform4fv(map.u_clipPlanes, data);
+    gl.uniform1i(map.u_clipCount, count);
+  }
+
+  private drawMeshes(params: FrameParams, draws: readonly MeshDraw[], stats: FrameStats): void {
+    const gl = this.gl;
+    if (draws.length === 0) return;
+
+    gl.useProgram(this.meshProgram);
+    const u = this.meshUniforms;
+    gl.uniformMatrix4fv(u.u_viewProj, false, params.viewProj);
+    gl.uniform3fv(u.u_eye, params.eye);
+    gl.uniform3fv(u.u_lightDir, new Float32Array(LIGHT_DIRECTION));
+    this.setClipUniforms(u, params, true);
+
+    for (const draw of draws) {
+      const mesh = this.meshes.get(draw.meshId);
+      if (!mesh) continue;
+
+      const material = MATERIALS[draw.material];
+      const opacity = Math.min(draw.opacity * material.opacityScale, 1);
+      if (opacity <= 0.002) continue;
+
+      gl.uniformMatrix4fv(u.u_model, false, draw.modelMatrix);
+      gl.uniform3fv(
+        u.u_baseColor,
+        new Float32Array([
+          material.baseColor[0] * draw.tint[0],
+          material.baseColor[1] * draw.tint[1],
+          material.baseColor[2] * draw.tint[2],
+        ]),
+      );
+      gl.uniform1f(u.u_opacity, opacity);
+      gl.uniform1f(u.u_rim, draw.rim * material.rimScale);
+      gl.uniform1f(u.u_specular, material.specular);
+
+      const skinned = mesh.skinned && draw.boneMatrices !== null;
+      gl.uniform1i(u.u_skinned, skinned ? 1 : 0);
+      if (skinned) gl.uniformMatrix4fv(u.u_bones, false, draw.boneMatrices!);
+
+      gl.bindVertexArray(mesh.vao);
+
+      const opaquePass = draw.occluding && opacity > 0.95;
+      if (opaquePass) {
+        gl.disable(gl.BLEND);
+        gl.depthMask(true);
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.BACK);
+      } else {
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        // No depth writes: a translucent shell must not occlude the neurons
+        // inside it, which is the entire point of the ghost/tissue modes.
+        gl.depthMask(false);
+        gl.enable(gl.CULL_FACE);
+      }
+
+      for (const sub of mesh.subMeshes) {
+        if (sub.material !== draw.material) continue;
+        const offset = sub.indexOffset * (mesh.indexType === gl.UNSIGNED_SHORT ? 2 : 4);
+        if (opaquePass) {
+          gl.drawElements(gl.TRIANGLES, sub.indexCount, mesh.indexType, offset);
+          stats.drawCalls++;
+        } else {
+          // Back faces then front faces: two ordered passes approximate a
+          // volume far more cheaply than order-independent transparency, and
+          // for a body this convex they are close to correct.
+          gl.cullFace(gl.FRONT);
+          gl.drawElements(gl.TRIANGLES, sub.indexCount, mesh.indexType, offset);
+          gl.cullFace(gl.BACK);
+          gl.drawElements(gl.TRIANGLES, sub.indexCount, mesh.indexType, offset);
+          stats.drawCalls += 2;
+        }
+        stats.meshTriangles += sub.indexCount / 3;
+      }
+    }
+
+    gl.bindVertexArray(null);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
   }
 
   updateSomaState(state: Uint8Array): void {
@@ -430,7 +745,8 @@ export class WebGL2Backend implements RendererBackend {
       drawCalls: 0,
       somaDrawn: 0,
       lineSegments: 0,
-      gpuBufferBytes: this.bufferBytes,
+      meshTriangles: 0,
+      gpuBufferBytes: this.bufferBytes + this.meshBytes,
       gpuTimeMs: null,
     };
     if (this.disposed) return stats;
@@ -443,6 +759,14 @@ export class WebGL2Backend implements RendererBackend {
     gl.clearColor(BG[0], BG[1], BG[2], 1);
     gl.clearDepth(1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const meshDraws = params.meshDraws ?? [];
+    // Opaque/occluding surfaces first so they can depth-reject hidden soma.
+    this.drawMeshes(
+      params,
+      meshDraws.filter((d) => d.occluding),
+      stats,
+    );
 
     if (this.somaCount > 0 && this.somaVao) {
       gl.useProgram(this.somaProgram);
@@ -467,6 +791,13 @@ export class WebGL2Backend implements RendererBackend {
       stats.lineSegments = this.lineSegments;
     }
 
+    // Translucent surfaces last, without depth writes, so neurons show through.
+    this.drawMeshes(
+      params,
+      meshDraws.filter((d) => !d.occluding),
+      stats,
+    );
+
     gl.bindVertexArray(null);
     return stats;
   }
@@ -477,6 +808,7 @@ export class WebGL2Backend implements RendererBackend {
     // Projected pixel size of a world-space unit at w = 1.
     const pointScale = (params.viewProj[5] * this.heightPx) / 2;
     gl.uniformMatrix4fv(u.u_viewProj, false, params.viewProj);
+    gl.uniformMatrix4fv(u.u_somaModel, false, params.somaModel ?? IDENTITY4);
     gl.uniform3fv(u.u_eye, params.eye);
     gl.uniform1f(u.u_pointScale, pointScale);
     gl.uniform1f(u.u_somaRadius, params.somaRadius);
@@ -488,7 +820,9 @@ export class WebGL2Backend implements RendererBackend {
     gl.uniform1f(u.u_globalDim, params.globalDim);
     gl.uniform1i(u.u_activityEnabled, params.activityEnabled ? 1 : 0);
     gl.uniform3fv(u.u_background, BG);
-    gl.uniform1f(u.u_depthCue, 0.22);
+    gl.uniform1f(u.u_depthCue, 1.15);
+    gl.uniform1f(u.u_camDistance, params.cameraDistance);
+    this.setClipUniforms(u, params, params.clipAffectsSoma === true);
   }
 
   async pick(xPx: number, yPx: number, radiusPx: number): Promise<number> {
@@ -507,6 +841,7 @@ export class WebGL2Backend implements RendererBackend {
     const u = this.pickUniforms;
     const pointScale = (this.lastViewProj[5] * this.heightPx) / 2;
     gl.uniformMatrix4fv(u.u_viewProj, false, this.lastViewProj);
+    gl.uniformMatrix4fv(u.u_somaModel, false, this.lastSomaModel);
     gl.uniform1f(u.u_pointScale, pointScale);
     gl.uniform1f(u.u_somaRadius, this.lastSomaRadius);
     gl.uniform1f(u.u_minPointPx, this.lastMinPointPx);
@@ -551,6 +886,7 @@ export class WebGL2Backend implements RendererBackend {
 
   /** Cached so `pick()` can reproduce the exact transform of the last frame. */
   private lastViewProj = new Float32Array(16);
+  private lastSomaModel = new Float32Array(IDENTITY4);
   private lastSomaRadius = 0.004;
   private lastMinPointPx = 1;
   private lastMaxPointPx = 64;
@@ -558,6 +894,7 @@ export class WebGL2Backend implements RendererBackend {
 
   private captureFrameParams(params: FrameParams): void {
     this.lastViewProj.set(params.viewProj);
+    this.lastSomaModel.set(params.somaModel ?? IDENTITY4);
     this.lastSomaRadius = params.somaRadius;
     this.lastMinPointPx = params.minPointPx * params.devicePixelRatio;
     this.lastMaxPointPx = params.maxPointPx * params.devicePixelRatio;
@@ -627,6 +964,8 @@ export class WebGL2Backend implements RendererBackend {
     this.disposed = true;
     const gl = this.gl;
     this.destroySomaResources();
+    for (const id of [...this.meshes.keys()]) this.removeMesh(id);
+    gl.deleteProgram(this.meshProgram);
     if (this.lineVao) gl.deleteVertexArray(this.lineVao);
     if (this.linePositionBuffer) gl.deleteBuffer(this.linePositionBuffer);
     if (this.lineColorBuffer) gl.deleteBuffer(this.lineColorBuffer);
@@ -638,6 +977,9 @@ export class WebGL2Backend implements RendererBackend {
     gl.deleteProgram(this.lineProgram);
   }
 }
+
+/** Reused identity matrix for draws with no soma model transform. */
+const IDENTITY4 = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 /** Viewport background, shared with the CSS variable --viewport-bg. */
 export const BG = new Float32Array([0.031, 0.035, 0.043]);

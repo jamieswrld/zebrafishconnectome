@@ -24,6 +24,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from fish1.common import VOLUME_VOXELS  # noqa: E402
 from fish1.neuron_index import fnv1a32, read_lane, validate_container  # noqa: E402
 
 
@@ -95,6 +96,22 @@ def main() -> int:
     if not np.isfinite(positions).all():
         failures.append("positions contain non-finite values")
 
+    # Every coordinate must lie inside the published volume. This is the check
+    # that catches a wrong voxel size: the wrong scale puts coordinates outside
+    # a grid that physically cannot contain them.
+    vmax = positions.max(axis=0)
+    vmin = positions.min(axis=0)
+    for axis in range(3):
+        if vmax[axis] >= VOLUME_VOXELS[axis]:
+            failures.append(
+                f"axis {'xyz'[axis]} reaches voxel {int(vmax[axis]):,}, outside the published "
+                f"volume ({VOLUME_VOXELS[axis]:,}). The voxel size is probably wrong."
+            )
+        if vmin[axis] < 0:
+            failures.append(f"axis {'xyz'[axis]} has negative voxel coordinates")
+    if all(vmax[a] < VOLUME_VOXELS[a] for a in range(3)):
+        print("ok   in volume    all coordinates inside the published bounds")
+
     span = positions.max(axis=0) - positions.min(axis=0)
     if (span == 0).any():
         failures.append(f"population is degenerate along an axis (voxel span {span.tolist()})")
@@ -113,6 +130,18 @@ def main() -> int:
                 f"extent {extent_um} um is implausible for a larval zebrafish brain; "
                 "check voxelSizeNm"
             )
+
+        # Mean soma spacing is an independent check on scale: packed larval
+        # brain tissue should give roughly a neuron diameter, 4-10 um.
+        volume_um3 = extent_um[0] * extent_um[1] * extent_um[2]
+        if desc["count"] > 0 and volume_um3 > 0:
+            spacing = (volume_um3 / desc["count"]) ** (1 / 3)
+            print(f"ok   soma spacing {spacing:.1f} um mean")
+            if not 3.0 <= spacing <= 14.0:
+                warnings.append(
+                    f"mean soma spacing {spacing:.1f} um is outside the 3-14 um expected for "
+                    "larval brain tissue; the voxel size may be wrong"
+                )
 
     valid_codes = set(range(5))
     bad = sorted(set(np.unique(cell_types).tolist()) - valid_codes)

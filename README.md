@@ -1,6 +1,7 @@
 # Connectome Lab
 
-An explorable digital zebrafish nervous system.
+An explorable digital zebrafish nervous system — now with a body, a world, and
+a closed sensorimotor loop.
 
 **Live:** <https://zebrafishconnectome.vercel.app> ·
 [real neuron 186187](https://zebrafishconnectome.vercel.app/brain?neuron=186187) ·
@@ -64,6 +65,8 @@ root IDs and source voxel coordinates, plus 13,813 measured synaptic edges.
 ```
 /                                       intro
 /brain                                  explorer (real Fish1, published export)
+/brain?view=organism                    the same connectome inside a larval body
+/world                                  the organism swimming in a simulated tank
 /brain?neuron=186187                    deep-link to a real, well-connected neuron
 /brain?dataset=fish1                    whole-brain Fish1 (needs a CAVE token)
 /brain?dataset=dev-sample               synthetic stand-in, badged as such
@@ -84,6 +87,44 @@ root IDs and source voxel coordinates, plus 13,813 measured synaptic edges.
 | `F`                      | focus selected · `R` reset camera    |
 | `[` `]`                  | toggle panels · `\` distraction-free |
 | `Esc`                    | clear selection                      |
+
+---
+
+## Phase 2: embodiment
+
+The connectome now sits inside an anatomically proportioned larval zebrafish,
+and that organism swims in a tank under a real closed loop:
+
+```
+WORLD → SENSORS → CONTROLLER → MOTOR → BODY → WORLD
+```
+
+- **BRAIN and ORGANISM share one route and one renderer**, so moving between
+  scales is a camera move, not a reload. The connectome was inside an animal the
+  whole time.
+- **The body is `MODELED REFERENCE ANATOMY`** — procedurally generated, not the
+  Fish1 specimen. No redistributable 6–7 dpf body mesh exists (mapZebrain is
+  CC-BY-NC and brain-only), so we built one and labelled it.
+- **The registration is `APPROXIMATE`** and says so in the UI. Measured
+  coordinates are never rewritten; neurons move because a matrix moves.
+- **Motion is `SIMULATED`, connectome coupling is `OFF`**, badged in the
+  viewport every frame. Fish1 does not drive the fish yet, and the app never
+  implies it does.
+
+See [docs/EMBODIMENT.md](docs/EMBODIMENT.md),
+[docs/SPATIAL_REGISTRATION.md](docs/SPATIAL_REGISTRATION.md) and
+[docs/AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md).
+
+### A correction this phase forced
+
+Phase 1 used **16 × 16 × 30 nm** for Fish1 soma coordinates, from the release
+prose. The data disagrees: the export reaches y = 49,799, impossible on the
+16 nm grid (32,500 voxels) but fine on the 8 nm one (65,000); soma spacing at
+8 nm is 5.6 µm — a larval neuron — versus 9.0 µm at 16 nm; and the official
+notebook's coordinate helper defaults to `(8, 8, 30)`. **The brain was being
+rendered at twice its true size in x and y.** Corrected, and
+`pipeline/fish1/validate.py` now rejects any export whose coordinates fall
+outside the published volume.
 
 ---
 
@@ -240,14 +281,21 @@ npm run typecheck     # tsc --noEmit
 npm run lint
 npm run test          # vitest
 npm run build
+npm run build:body    # regenerate the reference body artifact
 ```
 
-108 tests cover the logic that can break scientific correctness: binary
+164 tests cover the logic that can break scientific correctness: binary
 encode/decode and corruption handling, coordinate invertibility, the lore/root
 ID distinction, filter masks, traversal limits, SWC parsing, generator
-determinism, and the provenance rules themselves. One test shells out to Python
-and decodes a pipeline-written container with the production TypeScript decoder,
-so the two implementations of the binary format cannot silently diverge.
+determinism, and the provenance rules themselves. Phase 2 adds the mesh container,
+transform composition and invertibility, rigid-registration distance
+preservation, rig skinning, fixed-timestep behaviour, controller determinism,
+tank collision, event ordering, and the capability gateway — including that an
+unapproved capability never executes and that credential-shaped payloads are
+refused. One test asserts that placing a body does not modify a single neuron
+coordinate. Another shells out to Python and decodes a pipeline-written
+container with the production TypeScript decoder, so the two implementations of
+the binary format cannot silently diverge.
 
 ---
 
@@ -255,8 +303,15 @@ so the two implementations of the binary format cannot silently diverge.
 
 Stated plainly, because a disabled control is worth more than a fake one:
 
+- **Neural control of the body.** The controller is procedural. Swapping in a
+  `NeuralBehaviorController` is a one-line change at a defined seam, and the
+  `CONNECTOME COUPLING OFF` badge flips only when it is genuinely true.
 - **Simulation, Experiments, Lab** — navigation entries are disabled with a
   tooltip saying what each will be. Types exist in `src/simulation/types.ts`.
+- **External capabilities** — the gateway, permission modes and audit trail are
+  implemented; exactly one no-op sandbox capability is registered, in OBSERVE
+  mode. There is no network, filesystem or system access anywhere in it.
+- **Memory and persistence** — interfaces only. No invented age or action counts.
 - **Skeleton rendering** — the data path is live and SWC download works; drawing
   morphology in the viewport is the next milestone.
 - **Depth > 1 tracing** — the traversal engine and its limits are implemented

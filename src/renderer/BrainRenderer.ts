@@ -10,16 +10,23 @@ import {
   type CircuitEdgeInput,
 } from './layers/ConnectionLayer';
 import { SomaLayer } from './layers/SomaLayer';
+import { BodyLayer } from './layers/BodyLayer';
 import { WebGL2Backend } from './backends/webgl2';
 import { WebGPUBackend } from './backends/webgpu';
 import type {
+  BodyDisplayMode,
+  ClipPlane,
   ColorMode,
   ContextMode,
   FrameParams,
   FrameStats,
   GraphicsApi,
+  MeshDraw,
   RendererBackend,
 } from './types';
+import type { MeshGeometry } from '@/core/mesh';
+import type { Mat4 } from './math';
+import type { FishPose } from '@/body/rig';
 
 /**
  * The renderer root.
@@ -49,6 +56,7 @@ export interface RendererStats {
   somaTotal: number;
   somaVisible: number;
   lineSegments: number;
+  meshTriangles: number;
   gpuBufferBytes: number;
   api: GraphicsApi;
   device: string;
@@ -81,6 +89,7 @@ export class BrainRenderer {
   readonly connections = new ConnectionLayer();
   readonly axes = new AxesLayer();
   readonly lod = new LODController();
+  readonly body = new BodyLayer();
   readonly picking: PickingSystem;
 
   private backend: RendererBackend | null = null;
@@ -116,9 +125,18 @@ export class BrainRenderer {
     drawCalls: 0,
     somaDrawn: 0,
     lineSegments: 0,
+    meshTriangles: 0,
     gpuBufferBytes: 0,
     gpuTimeMs: null,
   };
+  private somaModel: Mat4 = (() => {
+    const m = new Float32Array(16);
+    m[0] = m[5] = m[10] = m[15] = 1;
+    return m;
+  })();
+  private clipPlanes: ClipPlane[] = [];
+  private clipAffectsSoma = false;
+  private extraMeshDraws: MeshDraw[] = [];
   private cachedVisibleCount = 0;
   private visibleCountDirty = true;
   private needsRender = true;
@@ -211,6 +229,86 @@ export class BrainRenderer {
     this.uploadLines();
     this.visibleCountDirty = true;
     this.requestRender();
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Body                                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Loads the reference body surface. Uploading a mesh does NOT change anything
+   * about the neuron buffers; the body is an additional layer drawn around
+   * measured data.
+   */
+  setBodyGeometry(geometry: MeshGeometry): void {
+    const upload = this.body.setGeometry(geometry);
+    this.backend?.uploadMesh(upload);
+    this.requestRender();
+  }
+
+  /**
+   * Places the whole soma population. Identity in brain/organism mode; in world
+   * mode it carries the neurons along with the swimming body.
+   */
+  setSomaModelMatrix(matrix: Float32Array): void {
+    this.somaModel.set(matrix);
+    this.requestRender();
+  }
+
+  /** Maps body rest space into the same render space the soma were placed in. */
+  setBodyModelMatrix(matrix: Float32Array): void {
+    this.body.setModelMatrix(matrix);
+    this.requestRender();
+  }
+
+  /** World placement of the organism (position and heading) in world mode. */
+  setBodyPlacement(matrix: Float32Array): void {
+    this.body.setPlacement(matrix);
+    this.requestRender();
+  }
+
+  setBodyPose(pose: FishPose): void {
+    this.body.setPose(pose);
+    this.requestRender();
+  }
+
+  setBodyDisplayMode(mode: BodyDisplayMode): void {
+    this.body.displayMode = mode;
+    this.requestRender();
+  }
+
+  bodyDisplayMode(): BodyDisplayMode {
+    return this.body.displayMode;
+  }
+
+  uploadMesh(id: string, geometry: MeshGeometry): void {
+    this.backend?.uploadMesh({ id, geometry });
+    this.requestRender();
+  }
+
+  removeMesh(id: string): void {
+    this.backend?.removeMesh(id);
+    this.requestRender();
+  }
+
+  /** Draw list for anything that is not the body (tank, debug surfaces). */
+  setExtraMeshDraws(draws: MeshDraw[]): void {
+    this.extraMeshDraws = draws;
+    this.requestRender();
+  }
+
+  /**
+   * Anatomical section planes. A fragment is removed where
+   * dot(position, normal) + distance > 0.
+   */
+  setClipPlanes(planes: ClipPlane[], affectsSoma: boolean): void {
+    this.clipPlanes = planes;
+    this.clipAffectsSoma = affectsSoma;
+    this.requestRender();
+  }
+
+  clipPlaneCount(): number {
+    return this.clipPlanes.length;
   }
 
   applyVisibilityMask(mask: Uint8Array): void {
@@ -342,6 +440,28 @@ export class BrainRenderer {
     this.requestRender();
   }
 
+  /**
+   * Frames an arbitrary axis-aligned box in render space. Used to pull the
+   * camera out to the whole animal and to dive back to the brain, so both
+   * transitions are the same operation on different bounds.
+   */
+  frameBounds(
+    min: readonly [number, number, number],
+    max: readonly [number, number, number],
+  ): void {
+    const centre: [number, number, number] = [
+      (min[0] + max[0]) / 2,
+      (min[1] + max[1]) / 2,
+      (min[2] + max[2]) / 2,
+    ];
+    const radius = Math.max(
+      Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2,
+      1e-4,
+    );
+    this.camera.focus(centre, this.framingDistance(radius));
+    this.requestRender();
+  }
+
   resetCamera(): void {
     const center = boundsCenter(this.sceneBounds);
     const radius = Math.max(boundsRadius(this.sceneBounds), 1e-4);
@@ -441,7 +561,12 @@ export class BrainRenderer {
       dimFactor: this.dimFactor,
       globalDim: this.globalDim,
       activityEnabled: this.activityEnabled,
+      cameraDistance: this.camera.current.distance,
+      somaModel: this.somaModel,
       showConnections: true,
+      meshDraws: [...this.body.buildDraws(), ...this.extraMeshDraws],
+      clipPlanes: this.clipPlanes,
+      clipAffectsSoma: this.clipAffectsSoma,
     };
 
     this.lastStats = backend.render(params);
@@ -488,6 +613,7 @@ export class BrainRenderer {
       somaTotal: this.soma.count,
       somaVisible: this.cachedVisibleCount,
       lineSegments: idle ? 0 : this.lastStats.lineSegments,
+      meshTriangles: idle ? 0 : this.lastStats.meshTriangles,
       gpuBufferBytes: this.lastStats.gpuBufferBytes,
       api: this.api,
       device: this.deviceDescription,

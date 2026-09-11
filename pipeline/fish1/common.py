@@ -23,14 +23,21 @@ TABLE_SOMAS = "somas"
 TABLE_SYNAPSES_LABEL = "synapses_axde_label"
 TABLE_SYNAPSE_SIZE = "synapses_axon_to_dendrite_size"
 
-# Soma pt_position is published in voxels at 16 x 16 x 30 nm.
+# Soma pt_position is published in the 8 x 8 x 30 nm grid.
 #
-# Note the documented inconsistency: the official notebook's coordinate-lookup
-# helper defaults to (8, 8, 30) for CloudVolume point lookups, which is the
-# segmentation's own mip-0 grid, while the somas table column reference states
-# 16 x 16 x 30 nm for pt_position. We use the soma-table value and keep it in
-# one place so a correction upstream is a one-line change.
-VOXEL_SIZE_NM = (16.0, 16.0, 30.0)
+# The release prose says 16 x 16 x 30 nm, but its own data says otherwise. The
+# published volume is 280000 x 65000 x 8689 voxels at 8 nm (half that at 16 nm),
+# per https://storage.googleapis.com/fish1-public/clahe_231218/info, and the
+# released CAVE somas export reaches y = 49,799 - impossible on a 32,500-voxel
+# axis, fine on a 65,000 one. Soma density agrees: at 8 nm the mean spacing is
+# 5.6 um, the size of a larval neuron; at 16 nm it would be 9.0 um. The official
+# notebook's coordinate helper also defaults to (8, 8, 30).
+#
+# validate.py checks exported coordinates against these bounds.
+VOXEL_SIZE_NM = (8.0, 8.0, 30.0)
+
+# Published volume extent in voxels at VOXEL_SIZE_NM.
+VOLUME_VOXELS = (280000, 65000, 8689)
 
 VOXEL_SPACE: dict[str, Any] = {
     "voxelSizeNm": list(VOXEL_SIZE_NM),

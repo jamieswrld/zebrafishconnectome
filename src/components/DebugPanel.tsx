@@ -55,6 +55,7 @@ export function DebugPanel() {
       <Row k="soma total" v={stats.somaTotal.toLocaleString()} />
       <Row k="soma visible" v={visible.toLocaleString()} />
       <Row k="line segments" v={stats.lineSegments.toLocaleString()} />
+      <Row k="mesh triangles" v={stats.meshTriangles.toLocaleString()} />
       <Row k="gpu buffers" v={`${buffersMb.toFixed(2)} MB`} />
       <Row k="cpu index" v={`${indexMb.toFixed(2)} MB`} />
       <Row k="filter pass" v={`${filterMs.toFixed(2)} ms`} />

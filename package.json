@@ -15,7 +15,10 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"*.{json,mjs}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
     "data:dev-sample": "node --experimental-strip-types scripts/build-dev-sample.ts",
-    "benchmark": "node scripts/benchmark.mjs"
+    "benchmark": "node scripts/benchmark.mjs",
+    "build:body": "node --experimental-strip-types --import ./scripts/register-loader.mjs scripts/build-body.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "benchmark:embodiment": "node scripts/benchmark-embodiment.mjs"
   },
   "dependencies": {
     "next": "^15.5.4",

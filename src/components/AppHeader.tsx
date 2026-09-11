@@ -21,6 +21,18 @@ interface NavEntry {
 const NAV: NavEntry[] = [
   { id: 'brain', label: 'Brain', href: '/brain', title: 'Whole-brain explorer.' },
   {
+    id: 'organism',
+    label: 'Organism',
+    href: '/brain?view=organism',
+    title: 'The same connectome, inside a reference larval body.',
+  },
+  {
+    id: 'world',
+    label: 'World',
+    href: '/world',
+    title: 'The organism swimming in a simulated tank.',
+  },
+  {
     id: 'simulate',
     label: 'Simulate',
     title:
@@ -41,17 +53,27 @@ const NAV: NavEntry[] = [
 ];
 
 export function AppHeader({
+  view,
   onSearch,
   onCopyLink,
   onToggleLeft,
   onToggleRight,
 }: {
+  /** Distinguishes BRAIN from ORGANISM, which share one route. */
+  view?: 'brain' | 'organism';
   onSearch?: () => void;
   onCopyLink?: () => void;
   onToggleLeft?: () => void;
   onToggleRight?: () => void;
 }) {
   const pathname = usePathname();
+
+  const isCurrent = (entry: NavEntry): boolean => {
+    if (!entry.href) return false;
+    if (entry.id === 'brain') return pathname === '/brain' && view !== 'organism';
+    if (entry.id === 'organism') return pathname === '/brain' && view === 'organism';
+    return pathname === entry.href;
+  };
 
   return (
     <header className="shell-header">
@@ -67,7 +89,7 @@ export function AppHeader({
               href={entry.href}
               className="nav-item"
               title={entry.title}
-              aria-current={pathname === entry.href ? 'page' : undefined}
+              aria-current={isCurrent(entry) ? 'page' : undefined}
               style={{ borderBottomStyle: 'solid' }}
             >
               {entry.label}

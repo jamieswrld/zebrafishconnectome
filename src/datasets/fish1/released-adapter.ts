@@ -277,7 +277,8 @@ export class Fish1ReleasedAdapter implements BrainDatasetAdapter {
     let truncated = false;
 
     const collect = (dir: 'incoming' | 'outgoing') => {
-      const list = (dir === 'incoming' ? connectivity.incoming : connectivity.outgoing).get(id) ?? [];
+      const list =
+        (dir === 'incoming' ? connectivity.incoming : connectivity.outgoing).get(id) ?? [];
       for (const entry of list) {
         const partnerIndex = this.lookup!.get(entry.partner);
         const polarity =

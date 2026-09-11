@@ -5,10 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { asLoreId, isLoreId } from '@/core/ids';
 import { DEFAULT_DATASET_ID } from '@/datasets/registry';
 import { useBrainStore } from '@/state/brainStore';
+import { useOrganismStore } from '@/state/organismStore';
 import { rendererRef } from '@/state/rendererRef';
 import { OrbitCamera } from '@/renderer/camera';
 import { BrainViewport } from './BrainViewport';
 import { FilterPanel } from './FilterPanel';
+import { AnatomyPanel } from './AnatomyPanel';
 import { NeuronInspector } from './NeuronInspector';
 import { CommandSearch } from './CommandSearch';
 import { AppHeader } from './AppHeader';
@@ -56,6 +58,14 @@ export function BrainExplorer() {
   const urlNeuron = params.get('neuron');
   const urlCamera = params.get('cam');
   const debug = params.get('debug') === '1';
+  /**
+   * BRAIN and ORGANISM are modes of ONE route, not separate pages. Changing
+   * only the search param keeps this component (and therefore the renderer and
+   * its uploaded neuron buffers) mounted, so moving between scales is a camera
+   * move rather than a reload. That continuity is the point: the connectome was
+   * inside an animal the whole time.
+   */
+  const view = params.get('view') === 'organism' ? 'organism' : 'brain';
   // Benchmark mode: draw every animation frame instead of skipping idle ones,
   // so sustained render throughput can be measured rather than the browser's
   // tick rate. Off by default; a still camera should cost nothing.
@@ -77,6 +87,43 @@ export function BrainExplorer() {
     // the dataset has already loaded.
     setDisplay({ continuousRendering: continuous });
   }, [continuous, setDisplay]);
+
+  const loadBody = useOrganismStore((s) => s.loadBody);
+  const bodyLoaded = useOrganismStore((s) => s.loaded);
+  const setDisplayMode = useOrganismStore((s) => s.setDisplayMode);
+  const frameWholeFish = useOrganismStore((s) => s.frameWholeFish);
+  const frameBrain = useOrganismStore((s) => s.frameBrain);
+
+  // The body asset is fetched lazily: entering /brain never downloads it.
+  useEffect(() => {
+    if (view !== 'organism' || loadStage !== 'ready') return;
+    void loadBody();
+  }, [view, loadStage, loadBody]);
+
+  // Entering organism mode reveals the body and pulls the camera out; leaving
+  // hides it and dives back to the connectome framing.
+  const previousView = useRef(view);
+  useEffect(() => {
+    if (previousView.current === view) return;
+    previousView.current = view;
+    if (view === 'organism') {
+      if (bodyLoaded) {
+        setDisplayMode('tissue');
+        frameWholeFish();
+      }
+    } else {
+      setDisplayMode('off');
+      frameBrain();
+    }
+  }, [view, bodyLoaded, setDisplayMode, frameWholeFish, frameBrain]);
+
+  // If the body finishes loading after the mode switch, apply it then.
+  useEffect(() => {
+    if (view === 'organism' && bodyLoaded) {
+      setDisplayMode('tissue');
+      frameWholeFish();
+    }
+  }, [view, bodyLoaded, setDisplayMode, frameWholeFish]);
 
   // Restore a deep link once the population is present, so the lore ID can be
   // resolved to an index.
@@ -171,6 +218,7 @@ export function BrainExplorer() {
   return (
     <div className="shell">
       <AppHeader
+        view={view}
         onSearch={() => setSearchOpen(true)}
         onCopyLink={copyLink}
         onToggleLeft={() => setDisplay({ leftPanelOpen: !display.leftPanelOpen })}
@@ -178,7 +226,15 @@ export function BrainExplorer() {
       />
 
       <div className="workspace">
-        {display.leftPanelOpen ? <FilterPanel onDatasetChange={setDataset} /> : <div />}
+        {display.leftPanelOpen ? (
+          view === 'organism' ? (
+            <AnatomyPanel />
+          ) : (
+            <FilterPanel onDatasetChange={setDataset} />
+          )
+        ) : (
+          <div />
+        )}
         <BrainViewport debug={display.debugOpen} />
         {display.rightPanelOpen ? <NeuronInspector /> : <div />}
       </div>

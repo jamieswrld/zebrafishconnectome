@@ -51,7 +51,7 @@
   --font-mono:
     ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
 
-  --panel-width-left: 232px;
+  --panel-width-left: 258px;
   --panel-width-right: 312px;
   --header-height: 38px;
   --status-height: 26px;
@@ -231,6 +231,20 @@ a:hover {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  /*
+   * Fixed width, not auto. The workspace grid is `auto 1fr auto`, so a panel
+   * with wide content would otherwise grow and squeeze the viewport - the
+   * viewport must stay dominant whatever a panel contains.
+   */
+  flex: none;
+}
+
+.panel--left {
+  width: var(--panel-width-left);
+}
+
+.panel--right {
+  width: var(--panel-width-right);
 }
 
 .panel--right {
