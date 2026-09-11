@@ -967,3 +967,254 @@ a:hover {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ========================================================================== */
+/* Phase 3: visual motion decision experiment                                 */
+/* ========================================================================== */
+
+/*
+ * Three columns like the rest of the app, with explicit panel widths. The
+ * centre stage must stay dominant whatever the panels contain, which is why
+ * neither side is `auto`.
+ */
+.experiment {
+  display: grid;
+  grid-template-columns: var(--panel-width-left) 1fr var(--panel-width-right);
+  min-height: 0;
+  height: 100%;
+  background: var(--viewport-bg);
+}
+
+.experiment__stage {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.experiment__views {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+  min-width: 0;
+}
+
+.experiment__view {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+
+.experiment__view:last-child {
+  border-right: none;
+}
+
+.experiment__view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.stimulus-view {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+}
+
+.stimulus-view canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.experiment__readout {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* --- bilateral population bars ------------------------------------------ */
+
+.bilateral {
+  margin: 8px 0 0;
+}
+
+.bilateral__head,
+.bilateral__nums {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.bilateral__nums {
+  font-size: 9.5px;
+  margin-top: 2px;
+}
+
+.bilateral__bars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.bilateral__side {
+  position: relative;
+  height: 9px;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* The left side fills from the midline outward, so the pair reads as one meter. */
+.bilateral__side--left {
+  transform: scaleX(-1);
+}
+
+.bilateral__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--prov-simulated);
+  opacity: 0.85;
+}
+
+/* --- decision meter ------------------------------------------------------ */
+
+.decision-meter {
+  position: relative;
+  height: 14px;
+  margin-top: 4px;
+  background: var(--panel-inset);
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+}
+
+.decision-meter__threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--warn);
+  opacity: 0.65;
+}
+
+.decision-meter__fill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  background: var(--prov-simulated);
+  opacity: 0.6;
+}
+
+.decision-meter__fill--crossed {
+  background: var(--selected);
+  opacity: 0.95;
+}
+
+/* --- modeled projections and evidence lists ------------------------------ */
+
+.projection {
+  margin: 8px 0 0;
+  padding: 7px 8px;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.projection__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.evidence-list {
+  margin: 4px 0 0;
+  padding-left: 15px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.evidence-list li {
+  margin-bottom: 3px;
+}
+
+/* --- slider rows --------------------------------------------------------- */
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 8px;
+}
+
+.slider-row .range {
+  grid-column: 1 / -1;
+}
+
+/* --- timeline ------------------------------------------------------------ */
+
+.timeline {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.timeline canvas {
+  display: block;
+  width: 100%;
+  height: 168px;
+  touch-action: none;
+  cursor: col-resize;
+}
+
+.timeline__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 10px;
+}
+
+@media (max-width: 1100px) {
+  .experiment {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .experiment__views {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .experiment__view {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .timeline canvas {
+    height: 132px;
+  }
+}
+
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 34px;
+  margin-top: 6px;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+}

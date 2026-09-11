@@ -18,7 +18,14 @@
     "benchmark": "node scripts/benchmark.mjs",
     "build:body": "node --experimental-strip-types --import ./scripts/register-loader.mjs scripts/build-body.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "benchmark:embodiment": "node scripts/benchmark-embodiment.mjs"
+    "benchmark:embodiment": "node scripts/benchmark-embodiment.mjs",
+    "build:hmi": "python pipeline/fish1/hmi/build_hmi.py",
+    "neural:validate": "node --import ./scripts/register-loader.mjs scripts/validate-neural.mjs",
+    "neural:psychometric": "node --import ./scripts/register-loader.mjs scripts/psychometric.mjs",
+    "neural:sweep": "node --import ./scripts/register-loader.mjs scripts/sweep-neural.mjs",
+    "smoke:experiment": "node scripts/smoke-experiment.mjs",
+    "smoke:integration": "node scripts/smoke-integration.mjs",
+    "benchmark:neural": "node scripts/benchmark-neural.mjs"
   },
   "dependencies": {
     "next": "^15.5.4",

@@ -1,0 +1,17 @@
+{
+  "dataset": "fish1-hmi",
+  "version": "v1",
+  "generatedAt": "2026-09-11T20:23:28.139694+00:00",
+  "neuronCount": 865,
+  "edgeCount": 1235,
+  "files": {
+    "circuit": "/datasets/fish1-hmi/v1/hmi.bin",
+    "populations": "/datasets/fish1-hmi/v1/populations.json"
+  },
+  "bytes": {
+    "circuit": 68720,
+    "populations": 7026
+  },
+  "notes": "Manually reconstructed Hindbrain Motion Integrator circuit from the published Fish1 HMI analysis package. Positions and synaptic contacts are MEASURED. Morphological class is the published classifier. Neurotransmitter is measured only where labelled. Petkova, M. D., Januszewski, M., et al. (2025). A connectomic resource for neural cataloguing and circuit dissection of the larval zebrafish brain. bioRxiv.",
+  "citation": "Petkova, M. D., Januszewski, M., et al. (2025). A connectomic resource for neural cataloguing and circuit dissection of the larval zebrafish brain. bioRxiv."
+}

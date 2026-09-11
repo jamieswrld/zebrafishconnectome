@@ -706,11 +706,25 @@ export class WebGL2Backend implements RendererBackend {
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, state);
   }
 
-  updateActivity(activity: Float32Array): void {
-    if (!this.activityBuffer) return;
+  updateActivity(activity: Float32Array, first = 0, count = activity.length): void {
+    if (!this.activityBuffer || count <= 0) return;
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.activityBuffer);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, activity);
+    if (first === 0 && count >= activity.length) {
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, activity);
+      return;
+    }
+    // Destination offset in bytes; srcOffset/length in elements.
+    const clampedFirst = Math.max(0, Math.min(first, activity.length));
+    const clampedCount = Math.max(0, Math.min(count, activity.length - clampedFirst));
+    if (clampedCount === 0) return;
+    gl.bufferSubData(
+      gl.ARRAY_BUFFER,
+      clampedFirst * Float32Array.BYTES_PER_ELEMENT,
+      activity,
+      clampedFirst,
+      clampedCount,
+    );
   }
 
   uploadConnections(lines: ConnectionLineSet | null): void {

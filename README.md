@@ -128,6 +128,84 @@ outside the published volume.
 
 ---
 
+## Phase 3: connectome-driven behaviour
+
+**A measured Fish1 circuit now decides what the animal does.**
+
+```
+WORLD → VISUAL MOTION → EVIDENCE → FISH1 HMI NETWORK → DECISION
+      → MOTOR INTENT → BODY → ORIENTATION → WORLD ↺
+```
+
+Run it: **[/experiments/visual-motion](https://zebrafishconnectome.vercel.app/experiments/visual-motion)**
+
+The circuit is the **hindbrain motion integrator**, imported from the published
+`HMI_analysis.zip` — 865 manually reconstructed cells with soma positions,
+**1,235 traced synaptic pairs**, published morphological classes and
+neurotransmitter labels. No credentials required.
+
+**What the measured data already contains**, counted from the traced contacts:
+
+| Pathway | Pairs | |
+| --- | ---: | --- |
+| traced input layer → Class I | 100 | sensory entry |
+| **Class I → Class I** | **300** | recurrent integration, **all within one hemisphere** |
+| Class I → Class II | 378 | drives the crossing population |
+| **Class I → SPN_turning** | **40** | descending motor output, onto 28/28 cells |
+| **Class II → anything** | **0** | **never traced** |
+
+So the reconstruction contains a complete chain from a structurally identified
+input layer to descending spinal projection neurons, with exactly one link
+missing. That link — Class II crossed inhibition — is added as a **population
+level term, never as fabricated synapses**, justified by measured morphology
+(the axon crosses the midline) and measured molecular identity (92% Gad1b). It
+is individually ablatable, and the UI shows its justification whenever it is on.
+
+The badge can finally read `CONNECTOME COUPLING ON`, and underneath it always:
+
+```
+DECISION NETWORK  Fish1 HMI       CONNECTIVITY  Measured
+DYNAMICS          Modeled         BODY EXECUTION  Simulated
+```
+
+### The model earns it
+
+Latency falls monotonically with evidence strength, and **nothing in the code
+consults coherence when deciding when to fire** (40 seeds per level):
+
+| Coherence | 1.00 | 0.70 | 0.50 | 0.40 | 0.30 |
+| --- | --- | --- | --- | --- | --- |
+| Median latency | 0.275 s | 0.355 s | 0.495 s | 0.675 s | no decision |
+
+**In silico ablation** shows the measured connectivity is load-bearing:
+
+| Ablation | Result |
+| --- | --- |
+| Class I ipsilateral recurrence (**measured**) | **no decision at any coherence, including 100%** |
+| One hemisphere | decisions abolished **in one direction only** |
+| Class II crossed inhibition (**modeled**) | threshold coherence 0.4 → 0.5 |
+| SPN_turning readout (**measured**) | decision variable exactly 0 |
+
+That first row is the point: remove the measured recurrent wiring and the
+behaviour stops. There is no path from stimulus direction to turn direction that
+does not go through the connectome.
+
+See [docs/HMI_CIRCUIT.md](docs/HMI_CIRCUIT.md),
+[docs/NEURAL_RUNTIME.md](docs/NEURAL_RUNTIME.md),
+[docs/SENSORIMOTOR_LOOP.md](docs/SENSORIMOTOR_LOOP.md) and
+[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+
+### What it still is not
+
+Simulated activity, not a recording — Fish1 contains **no** activity data. A
+morphological class is a prediction, not a functional identification. 74% of
+cells have no published neurotransmitter and contribute no signed drive under
+the default strict policy. The opposite hemisphere is **mirrored**, not
+measured. And the reconstruction ends at spinal projection neurons, so the bout
+itself is still executed by the procedural body model: `MOTOR PLANT PROCEDURAL`.
+
+---
+
 ## Datasets
 
 | Dataset                      | Real?        | Credentials | Coverage                                        |
@@ -272,6 +350,45 @@ Note the diagnostics report `fps (raf)` and `render fps` separately. Because
 idle frames are skipped, the browser's tick rate is not the renderer's
 throughput, and only the latter is a meaningful benchmark number.
 
+### Phase 3: what the neural model costs
+
+```bash
+npm run benchmark:neural -- --url http://localhost:3111
+```
+
+Same machine and settings. "Idle" means the neural runtime is present and
+stepping but no stimulus is running; "active" is the full closed loop.
+
+| Scenario                | Render FPS | CPU frame | Neural step | Draws | GPU buffers |
+| ----------------------- | ---------: | --------: | ----------: | ----: | ----------: |
+| 200k soma               |       4295 |   0.04 ms |           — |     2 |     4.58 MB |
+| 200k soma + body        |       4689 |   0.04 ms |           — |     4 |     4.75 MB |
+| fish1 30k               |       4236 |   0.03 ms |           — |     2 |     0.69 MB |
+| fish1 + body            |       5306 |   0.04 ms |           — |     4 |     0.87 MB |
+| fish1 + neural idle     |        742 |   0.04 ms |     1.36 ms |     2 |     0.69 MB |
+| **fish1 + neural active** |      **695** | 0.05 ms |   1.37 ms |     2 |     0.69 MB |
+| 200k + neural idle      |        781 |   0.05 ms |     1.20 ms |     2 |     4.58 MB |
+| **200k + neural active** |       **698** | 0.05 ms |   1.40 ms |     2 |     4.58 MB |
+
+**Running the model costs 6–11% of throughput** (742 → 695 at 30k, 781 → 698 at
+200k). Measured headless, the model itself runs at **73× real time**: 0.276 ms
+per 20 ms behaviour tick over 1,730 nodes and 2,470 edges.
+
+The experiment page as a whole sits near 700 FPS rather than the viewer's 4,300,
+because it also runs a second 2D canvas, the physics loop, React, and GPU
+activity uploads. At 1.4 ms per frame that is still ~11× under a 60 Hz budget,
+and the Phase 1/2 viewer is unaffected — the top four rows match the Phase 2
+baselines.
+
+Two things profiling changed. The 2D stimulus canvas and the GPU activity upload
+were both running at the uncapped frame rate; they are now capped at 60 Hz and
+30 Hz, since neither needs to exceed a display. And the "sparse" activity upload
+turned out not to be sparse in practice: the 865 HMI cells are interleaved
+through the 30,346 loaded soma with a **mean gap of 32**, so any range-based
+scheme covers essentially the whole span. Changed-value detection and run
+coalescing are in place and help whenever a subset genuinely is contiguous; an
+indexed indirection is the next step if the circuit grows.
+
 ---
 
 ## Quality
@@ -303,17 +420,27 @@ the binary format cannot silently diverge.
 
 Stated plainly, because a disabled control is worth more than a fake one:
 
-- **Neural control of the body.** The controller is procedural. Swapping in a
-  `NeuralBehaviorController` is a one-line change at a defined seam, and the
-  `CONNECTOME COUPLING OFF` badge flips only when it is genuinely true.
-- **Simulation, Experiments, Lab** — navigation entries are disabled with a
-  tooltip saying what each will be. Types exist in `src/simulation/types.ts`.
+- **A complete motor pathway.** The reconstruction ends at spinal projection
+  neurons. The spinal pattern generator and the musculature are not in this
+  dataset, so the bout is executed procedurally and the UI says
+  `MOTOR PLANT PROCEDURAL`.
+- **A measured sensory pathway.** No pretectal or tectal input neurons are
+  identified in this release. Evidence is injected into the traced input layer
+  under a stated convention, badged `MODELED SENSORY INTERFACE`.
+- **Recorded activity.** Fish1 is structural EM. Every rate in the simulation is
+  model output, and none of it is ever labelled as measured.
+- **A second measured hemisphere.** The reconstruction is 94% unilateral; the
+  opposite side is a mirror construction, flagged `derived` everywhere.
 - **External capabilities** — the gateway, permission modes and audit trail are
   implemented; exactly one no-op sandbox capability is registered, in OBSERVE
   mode. There is no network, filesystem or system access anywhere in it.
 - **Memory and persistence** — interfaces only. No invented age or action counts.
 - **Skeleton rendering** — the data path is live and SWC download works; drawing
-  morphology in the viewport is the next milestone.
+  morphology and individual synapse locations in the viewport is a candidate for
+  the next phase.
+- **Counterfactual branching** — state snapshots and bounded traces are in place,
+  and ablation comparisons re-run deterministically from a seed; branching a live
+  run at time _t_ is not yet wired.
 - **Depth > 1 tracing** — the traversal engine and its limits are implemented
   and tested; the UI currently drives depth 1.
 - **ZAPBench** — typed adapter boundary only. It is a _different animal_ from

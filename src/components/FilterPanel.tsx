@@ -18,6 +18,8 @@ import type { ColorMode } from '@/renderer/types';
  * and nothing in React re-renders per neuron. The measured pass time is shown,
  * because a claim of "instantaneous" should be checkable.
  */
+import { CircuitsPanel } from './CircuitsPanel';
+
 export function FilterPanel({
   onDatasetChange,
 }: {
@@ -251,6 +253,7 @@ export function FilterPanel({
           <dd>{filterMs.toFixed(2)} ms</dd>
         </div>
       </section>
+      <CircuitsPanel />
     </aside>
   );
 }

@@ -153,7 +153,15 @@ export interface RendererBackend {
   removeMesh(id: string): void;
   /** Partial update of the state lane; avoids re-uploading positions on filter. */
   updateSomaState(state: Uint8Array): void;
-  updateActivity(activity: Float32Array): void;
+  /**
+   * Uploads per-neuron activity.
+   *
+   * `first`/`count` bound the range that actually changed. A connectome-driven
+   * simulation touches a small subset of a large population - 865 HMI cells out
+   * of 30,346 loaded neurons - so uploading the whole buffer every tick would
+   * move two orders of magnitude more data than the simulation produced.
+   */
+  updateActivity(activity: Float32Array, first?: number, count?: number): void;
   uploadConnections(lines: ConnectionLineSet | null): void;
 
   render(params: FrameParams): FrameStats;

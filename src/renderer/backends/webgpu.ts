@@ -850,9 +850,21 @@ export class WebGPUBackend implements RendererBackend {
     this.device.queue.writeBuffer(this.stateBuffer, 0, gpuSource(this.stateScratch));
   }
 
-  updateActivity(activity: Float32Array): void {
-    if (!this.activityBuffer) return;
-    this.device.queue.writeBuffer(this.activityBuffer, 0, gpuSource(activity));
+  updateActivity(activity: Float32Array, first = 0, count = activity.length): void {
+    if (!this.activityBuffer || count <= 0) return;
+    const clampedFirst = Math.max(0, Math.min(first, activity.length));
+    const clampedCount = Math.max(0, Math.min(count, activity.length - clampedFirst));
+    if (clampedCount === 0) return;
+    // The destination offset is in BYTES, but because the source is a
+    // TypedArray its dataOffset and size are in ELEMENTS. Mixing the two units
+    // up throws "Number of bytes to write is too large".
+    this.device.queue.writeBuffer(
+      this.activityBuffer,
+      clampedFirst * Float32Array.BYTES_PER_ELEMENT,
+      gpuSource(activity),
+      clampedFirst,
+      clampedCount,
+    );
   }
 
   uploadConnections(lines: ConnectionLineSet | null): void {

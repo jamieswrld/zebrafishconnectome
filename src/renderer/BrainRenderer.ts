@@ -1,5 +1,6 @@
 import { boundsCenter, boundsRadius, computeBounds, type Bounds3 } from '@/core/coords';
 import type { NeuronIndex } from '@/core/types';
+import type { ConnectionLineSet } from './types';
 import { OrbitCamera, DEFAULT_VIEW, type CameraPreset, type CameraState } from './camera';
 import { LODController, type LodLevel, type LodPolicy } from './LODController';
 import { PickingSystem } from './PickingSystem';
@@ -106,6 +107,9 @@ export class BrainRenderer {
   private showConnections = true;
   private showAxes = true;
   private activityEnabled = false;
+  private overlayLines: ConnectionLineSet | null = null;
+  /** Neurons in the most recent activity upload, for the diagnostics panel. */
+  private lastActivityUpload = 0;
 
   private sceneBounds: Bounds3 = { min: [0, 0, 0], max: [0, 0, 0] };
   private lastFrameTime = 0;
@@ -360,10 +364,24 @@ export class BrainRenderer {
     this.requestRender();
   }
 
+  /**
+   * An arbitrary line overlay, drawn alongside the circuit and axis lines.
+   *
+   * Kept as its own channel rather than pushed through the connection layer so
+   * a simulation overlay can never be mistaken for, or overwrite, the dataset's
+   * own measured connectivity view.
+   */
+  setOverlayLines(lines: ConnectionLineSet | null): void {
+    this.overlayLines = lines;
+    this.uploadLines();
+    this.requestRender();
+  }
+
   private uploadLines(): void {
     const sets = [
       this.showConnections ? this.connections.current() : null,
       this.showAxes ? this.axes.current() : null,
+      this.overlayLines,
     ];
     this.backend?.uploadConnections(mergeLineSets(sets));
   }
@@ -402,6 +420,22 @@ export class BrainRenderer {
   setShowAxes(show: boolean): void {
     this.showAxes = show;
     this.uploadLines();
+    this.requestRender();
+  }
+
+  /**
+   * Writes simulated activity for a scattered subset of neurons.
+   *
+   * Only the touched range reaches the GPU. Called at most once per rendered
+   * frame, never once per neural step.
+   */
+  setActivitySparse(indices: Int32Array, values: Float32Array): void {
+    this.soma.setActivitySparse(indices, values);
+    this.requestRender();
+  }
+
+  clearActivity(): void {
+    this.soma.clearActivity();
     this.requestRender();
   }
 
@@ -460,6 +494,16 @@ export class BrainRenderer {
     );
     this.camera.focus(centre, this.framingDistance(radius));
     this.requestRender();
+  }
+
+  /** Neurons in the most recent activity upload. Diagnostics only. */
+  lastActivityUploadCount(): number {
+    return this.lastActivityUpload;
+  }
+
+  /** Render-space position of one neuron, or null if the index is out of range. */
+  worldPositionOf(index: number): [number, number, number] | null {
+    return this.soma.worldPositionOf(index);
   }
 
   resetCamera(): void {
@@ -529,8 +573,15 @@ export class BrainRenderer {
       backend.updateSomaState(this.soma.state);
       this.needsRender = true;
     }
-    if (this.soma.consumeActivityDirty()) {
-      backend.updateActivity(this.soma.activity);
+    // Read the touched runs BEFORE consuming the flag: consuming clears them.
+    const activityRuns = this.soma.activityRuns_().map((run) => ({ ...run }));
+    if (this.soma.consumeActivityDirty() && activityRuns.length > 0) {
+      let uploaded = 0;
+      for (const run of activityRuns) {
+        backend.updateActivity(this.soma.activity, run.first, run.count);
+        uploaded += run.count;
+      }
+      this.lastActivityUpload = uploaded;
       this.needsRender = true;
     }
 

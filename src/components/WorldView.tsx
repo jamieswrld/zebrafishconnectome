@@ -5,6 +5,13 @@ import { BrainRenderer, type RendererStats } from '@/renderer/BrainRenderer';
 import { detectGpuSupport } from '@/renderer/types';
 import { TIME_SCALES, type TimeScale } from '@/embodiment/clock';
 import { EmbodiedRuntime, type RuntimeSnapshot } from '@/embodiment/runtime';
+import {
+  DEFAULT_EXPERIMENT_CONFIG,
+  VisualMotionExperiment,
+  type ControllerMode,
+  type ExperimentSnapshot,
+} from '@/embodiment/experiment';
+import { loadHmiArtifacts } from '@/neural/loader';
 import { computeBodyPlacement, loadReferenceBody } from '@/body/placement';
 import { resolveAdapter, DEFAULT_DATASET_ID } from '@/datasets/registry';
 import { buildTank } from '@/world/tank';
@@ -46,6 +53,17 @@ export function WorldView() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [snapshot, setSnapshot] = useState<RuntimeSnapshot | null>(null);
+  /**
+   * The connectome-driven controller, available in world mode once the measured
+   * HMI circuit has loaded. It wraps the SAME EmbodiedRuntime, so switching
+   * controllers swaps the policy and nothing else about the world.
+   */
+  const experimentRef = useRef<VisualMotionExperiment | null>(null);
+  const controllerModeRef = useRef<ControllerMode>('baseline');
+  const [controllerMode, setControllerMode] = useState<ControllerMode>('baseline');
+  const [neuralAvailable, setNeuralAvailable] = useState(false);
+  const [neural, setNeural] = useState<ExperimentSnapshot | null>(null);
+  const [stimulusDirection, setStimulusDirection] = useState<'left' | 'right'>('right');
   const [stats, setStats] = useState<RendererStats | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [cameraMode, setCameraMode] = useState<CameraMode>('follow');
@@ -164,6 +182,33 @@ export function WorldView() {
           }
         })();
 
+        // The measured HMI circuit is optional in world mode: if it will not
+        // load, the world still works and the neural controller is simply not
+        // offered. Nothing is substituted for it.
+        void (async () => {
+          try {
+            const artifacts = await loadHmiArtifacts();
+            if (disposed) return;
+            const experiment = new VisualMotionExperiment({
+              embodied: runtime,
+              circuit: artifacts.circuit,
+              populations: artifacts.populations,
+              neuronIndex: null,
+            });
+            experiment.configure({
+              ...DEFAULT_EXPERIMENT_CONFIG,
+              stimulus: { ...DEFAULT_EXPERIMENT_CONFIG.stimulus, duration: 3600 },
+            });
+            // Created in neural mode; put it back to baseline so world mode
+            // starts where it did before.
+            experiment.setControllerMode('baseline');
+            experimentRef.current = experiment;
+            setNeuralAvailable(true);
+          } catch (e) {
+            console.warn('HMI circuit unavailable; the neural controller is not offered.', e);
+          }
+        })();
+
         const unsubscribe = runtime.events.subscribe(() => {
           // Pull a window rather than appending per event: the feed is a view
           // of the log, and the log is already the source of truth.
@@ -181,7 +226,18 @@ export function WorldView() {
           const realDt = (now - lastFrameRef.current) / 1000;
           lastFrameRef.current = now;
 
-          const snap = runtime.update(realDt);
+          // In neural mode the experiment owns the tick, because it also has to
+          // advance the stimulus and the network. It wraps the same runtime, so
+          // everything below is unchanged.
+          let snap: RuntimeSnapshot;
+          const experiment = experimentRef.current;
+          if (controllerModeRef.current === 'neural' && experiment) {
+            const frame = experiment.update(realDt);
+            snap = frame.runtime;
+            setNeural(frame);
+          } else {
+            snap = runtime.update(realDt);
+          }
           setSnapshot(snap);
 
           // Body placement: rest space (um) -> world (mm) -> render units.
@@ -229,6 +285,43 @@ export function WorldView() {
 
   const setTimeScale = useCallback((scale: TimeScale) => {
     runtimeRef.current?.setTimeScale(scale);
+  }, []);
+
+  const applyControllerMode = useCallback(
+    (mode: ControllerMode) => {
+      const experiment = experimentRef.current;
+      if (!experiment) return;
+      experiment.setControllerMode(mode);
+      controllerModeRef.current = mode;
+      setControllerMode(mode);
+      if (mode === 'neural') {
+        experiment.configure({
+          ...experiment.currentConfig(),
+          // A long-running stimulus, so world mode shows sustained optomotor
+          // behaviour rather than a single trial.
+          stimulus: {
+            ...experiment.currentConfig().stimulus,
+            direction: stimulusDirection,
+            duration: 3600,
+          },
+        });
+        experiment.start();
+      } else {
+        setNeural(null);
+      }
+    },
+    [stimulusDirection],
+  );
+
+  const applyStimulusDirection = useCallback((direction: 'left' | 'right') => {
+    setStimulusDirection(direction);
+    const experiment = experimentRef.current;
+    if (!experiment || controllerModeRef.current !== 'neural') return;
+    experiment.configure({
+      ...experiment.currentConfig(),
+      stimulus: { ...experiment.currentConfig().stimulus, direction, duration: 3600 },
+    });
+    experiment.start();
   }, []);
 
   const applyCamera = useCallback((mode: CameraMode) => {
@@ -441,7 +534,17 @@ export function WorldView() {
           ) : null}
         </div>
 
-        <WorldPanel snapshot={snapshot} onTimeScale={setTimeScale} timeScales={TIME_SCALES} />
+        <WorldPanel
+          snapshot={snapshot}
+          onTimeScale={setTimeScale}
+          timeScales={TIME_SCALES}
+          controllerMode={controllerMode}
+          neuralAvailable={neuralAvailable}
+          onControllerMode={applyControllerMode}
+          neural={neural}
+          stimulusDirection={stimulusDirection}
+          onStimulusDirection={applyStimulusDirection}
+        />
       </div>
 
       <EventFeed events={events} />

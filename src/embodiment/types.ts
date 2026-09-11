@@ -281,7 +281,19 @@ export type AgentEventType =
   | 'external_action_approved'
   | 'external_action_denied'
   | 'external_action_executed'
-  | 'external_action_result';
+  | 'external_action_result'
+  /* --- Phase 3: connectome-driven behaviour ------------------------------- *
+   * These are MEANINGFUL events only. Per-neuron state at 200 Hz would bury
+   * the log and is kept in bounded numeric traces instead (see
+   * src/neural/trace.ts). Nothing here fires per neuron per step.            */
+  | 'neural_simulation_started'
+  | 'sensory_evidence_updated'
+  | 'population_state_updated'
+  | 'decision_threshold_crossed'
+  | 'neural_motor_intent'
+  | 'connectome_action_selected'
+  | 'model_ablation_applied'
+  | 'experiment_completed';
 
 export interface AgentEvent {
   readonly id: string;

@@ -20,8 +20,12 @@ export function mulberry32(seed: number): () => number {
 
 export class SeededRandom {
   private next: () => number;
+  // Declared explicitly rather than as a constructor parameter property, so
+  // this module can be loaded by Node's type-stripping loader in scripts.
+  private seed: number;
 
-  constructor(private seed: number) {
+  constructor(seed: number) {
+    this.seed = seed;
     this.next = mulberry32(seed);
   }
 

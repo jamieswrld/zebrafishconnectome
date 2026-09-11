@@ -14,6 +14,13 @@ import {
  * this class scales with the number of React components on screen - only with
  * the number of neurons, once, at load.
  */
+/** A rate change smaller than this is not worth a GPU write. */
+const ACTIVITY_EPSILON = 1e-4;
+/** Runs closer than this are merged: a few spare floats beat another write. */
+const ACTIVITY_RUN_GAP = 64;
+/** Beyond this many runs, one span costs less than the per-write overhead. */
+const ACTIVITY_MAX_RUNS = 96;
+
 export class SomaLayer {
   count = 0;
 
@@ -36,6 +43,17 @@ export class SomaLayer {
 
   private stateDirty = false;
   private activityDirty = false;
+  private activityFirst = 0;
+  private activityLast = -1;
+  /**
+   * Contiguous ranges of the activity buffer that actually changed.
+   *
+   * A connectome-driven simulation touches a small, SCATTERED subset of a large
+   * population: 865 HMI cells spread across 30,346 loaded soma. Uploading
+   * min..max would cover almost the whole buffer, which is no better than
+   * uploading all of it, so changed indices are coalesced into runs instead.
+   */
+  private activityRuns: { first: number; count: number }[] = [];
 
   build(index: NeuronIndex): SomaBufferSet {
     const { count } = index;
@@ -136,8 +154,83 @@ export class SomaLayer {
   }
 
   setActivity(values: Float32Array): void {
-    this.activity.set(values.subarray(0, Math.min(values.length, this.count)));
+    const n = Math.min(values.length, this.count);
+    this.activity.set(values.subarray(0, n));
     this.activityDirty = true;
+    this.activityFirst = 0;
+    this.activityLast = n - 1;
+    this.activityRuns = n > 0 ? [{ first: 0, count: n }] : [];
+  }
+
+  /**
+   * Writes activity for a scattered subset of neurons.
+   *
+   * `indices` and `values` are parallel; indices outside the loaded population
+   * are skipped, which is the normal case when a circuit artefact contains
+   * cells the current dataset does not. The touched range is recorded so the
+   * backend can upload only that slice.
+   */
+  setActivitySparse(indices: Int32Array, values: Float32Array): void {
+    const n = Math.min(indices.length, values.length);
+    const runs = this.activityRuns;
+    let first = this.activityDirty ? this.activityFirst : Number.MAX_SAFE_INTEGER;
+    let last = this.activityDirty ? this.activityLast : -1;
+    let changed = false;
+
+    for (let i = 0; i < n; i++) {
+      const index = indices[i];
+      if (index < 0 || index >= this.count) continue;
+      const value = values[i];
+      // Only a real change is worth a GPU write. While no stimulus is running
+      // every rate is already zero, so an idle simulation uploads nothing.
+      if (Math.abs(this.activity[index] - value) <= ACTIVITY_EPSILON) continue;
+      this.activity[index] = value;
+      changed = true;
+      if (index < first) first = index;
+      if (index > last) last = index;
+
+      // Indices arrive ascending, so runs can be coalesced in one pass.
+      const tail = runs[runs.length - 1];
+      if (
+        tail &&
+        index >= tail.first &&
+        index - (tail.first + tail.count - 1) <= ACTIVITY_RUN_GAP
+      ) {
+        tail.count = index - tail.first + 1;
+      } else {
+        runs.push({ first: index, count: 1 });
+      }
+    }
+
+    if (!changed) return;
+    this.activityDirty = true;
+    this.activityFirst = first;
+    this.activityLast = last;
+
+    // Past a sane number of writes, one span is cheaper than the call overhead.
+    if (runs.length > ACTIVITY_MAX_RUNS) {
+      this.activityRuns = [{ first, count: last - first + 1 }];
+    }
+  }
+
+  /** Resets every activity value to zero and marks the whole buffer dirty. */
+  clearActivity(): void {
+    this.activity.fill(0);
+    this.activityDirty = true;
+    this.activityFirst = 0;
+    this.activityLast = this.count - 1;
+    this.activityRuns = this.count > 0 ? [{ first: 0, count: this.count }] : [];
+  }
+
+  /** [first, count] of the pending activity upload, as one span. */
+  activityRange(): { first: number; count: number } {
+    if (this.activityLast < this.activityFirst) return { first: 0, count: 0 };
+    return { first: this.activityFirst, count: this.activityLast - this.activityFirst + 1 };
+  }
+
+  /** The contiguous ranges that actually changed. Empty when nothing did. */
+  activityRuns_(): readonly { first: number; count: number }[] {
+    return this.activityRuns;
   }
 
   worldPositionOf(index: number): [number, number, number] | null {
@@ -166,6 +259,11 @@ export class SomaLayer {
   consumeActivityDirty(): boolean {
     const dirty = this.activityDirty;
     this.activityDirty = false;
+    if (dirty) {
+      this.activityFirst = Number.MAX_SAFE_INTEGER;
+      this.activityLast = -1;
+      this.activityRuns = [];
+    }
     return dirty;
   }
 }
