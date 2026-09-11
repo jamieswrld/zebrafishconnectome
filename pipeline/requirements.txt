@@ -1,0 +1,6 @@
+# Fish1 pipeline dependencies.
+# Install into a virtualenv:  python -m venv .venv && pip install -r pipeline/requirements.txt
+caveclient>=7.0.0
+cloud-volume>=11.0.0
+numpy>=1.26
+pandas>=2.0

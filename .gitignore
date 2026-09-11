@@ -1,0 +1,29 @@
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets — never commit CAVE tokens
+.env
+.env.local
+.env*.local
+*secret*.json
+cave-secret.json
+
+# Large scientific source data must never enter git.
+# Only small generated manifests are tracked; binaries are built locally.
+data/raw/
+data/cache/
+public/datasets/*/*.bin
+public/datasets/fish1/
+pipeline/**/out/
+pipeline/**/__pycache__/
+*.swc
+*.zip
+.venv/
+venv/
+
+.DS_Store
+coverage/

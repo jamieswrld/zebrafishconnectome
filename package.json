@@ -1,0 +1,37 @@
+{
+  "name": "connectome-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive digital zebrafish nervous system \u2014 whole-brain connectome explorer",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"*.{json,mjs}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
+    "data:dev-sample": "node --experimental-strip-types scripts/build-dev-sample.ts",
+    "benchmark": "node scripts/benchmark.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@webgpu/types": "^0.1.64",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "^15.5.4",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
