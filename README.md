@@ -2,6 +2,10 @@
 
 An explorable digital zebrafish nervous system.
 
+**Live:** <https://zebrafishconnectome.vercel.app> ·
+[real neuron 186187](https://zebrafishconnectome.vercel.app/brain?neuron=186187) ·
+[200k benchmark](https://zebrafishconnectome.vercel.app/brain?dataset=benchmark-200000&debug=1)
+
 A whole-brain connectome viewer built on **Fish1**, the larval zebrafish CLEM
 resource from Petkova, Januszewski et al. (2025). The entire soma population
 renders as one GPU draw call, individual neurons are picked on the GPU, and

@@ -29,7 +29,9 @@ const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.message));
 
 try {
-  await page.goto(`${BASE}/brain?dataset=benchmark-200000&debug=1`, {
+  // bench=1 forces continuous rendering. Without it a still camera legitimately
+  // draws nothing, so per-frame counters read 0 and prove nothing either way.
+  await page.goto(`${BASE}/brain?dataset=benchmark-200000&debug=1&bench=1`, {
     waitUntil: 'domcontentloaded',
   });
 
@@ -65,7 +67,11 @@ try {
     parseFloat(diag['gpu buffers']) > 0,
     String(diag['gpu buffers']),
   );
-  record('actually drawing', parseInt(diag['draw calls'], 10) > 0, `${diag['draw calls']} draw calls`);
+  record(
+    'actually drawing',
+    parseInt(diag['draw calls'], 10) > 0 && parseFloat(diag['render fps']) > 0,
+    `${diag['draw calls']} draw calls, ${diag['render fps']} render fps`,
+  );
 
   // The honesty badge must be present for a synthetic population.
   const badge = await page.textContent('.viewport-badges');
@@ -74,12 +80,21 @@ try {
   // Pick a neuron by clicking the densest part of the cloud.
   const box = await (await page.$('canvas')).boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await page.waitForFunction(
-    () => /Selected neuron \d+/.test(document.querySelector('[aria-live="polite"]')?.textContent ?? ''),
-    { timeout: 15_000 },
-  ).catch(() => {});
+  await page
+    .waitForFunction(
+      () =>
+        /Selected neuron \d+/.test(
+          document.querySelector('[aria-live="polite"]')?.textContent ?? '',
+        ),
+      { timeout: 15_000 },
+    )
+    .catch(() => {});
   const selected = await page.textContent('[aria-live="polite"]');
-  record('GPU picking selects a neuron', /Selected neuron \d+/.test(selected ?? ''), selected?.trim());
+  record(
+    'GPU picking selects a neuron',
+    /Selected neuron \d+/.test(selected ?? ''),
+    selected?.trim(),
+  );
 
   record('no page errors', pageErrors.length === 0, pageErrors.join(' | '));
 } catch (e) {
