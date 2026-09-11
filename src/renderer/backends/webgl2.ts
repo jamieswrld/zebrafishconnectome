@@ -121,6 +121,17 @@ void main() {
     brightness *= u_globalDim;
   }
 
+  // Simulated activity modulates the normal colouring rather than replacing it.
+  // An inactive cell must look like an ordinary neuron, so a small circuit
+  // stays legible inside a large, normally coloured nervous system. Colour mode
+  // 2 is the dedicated activity ramp and already handles this itself.
+  if (u_activityEnabled == 1 && u_colorMode != 2) {
+    float a = clamp(a_activity, 0.0, 1.0);
+    color = mix(color, activityColor(a), a * 0.85);
+    brightness *= 1.0 + a * 3.0;
+    sizePx *= 1.0 + a * 1.3;
+  }
+
   if (inCircuit) {
     color = circuitIn ? COLOR_CIRCUIT_IN : (circuitOut ? COLOR_CIRCUIT_OUT : color);
     brightness = 1.0;

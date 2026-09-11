@@ -123,6 +123,17 @@ fn vs(
     brightness = brightness * U.params1.y;
   }
 
+  // Simulated activity modulates the normal colouring rather than replacing it.
+  // An inactive cell must look like an ordinary neuron, so a small circuit
+  // stays legible inside a large, normally coloured nervous system. Colour mode
+  // 2 is the dedicated activity ramp and already handles this itself.
+  if (U.flags.z == 1 && U.flags.x != 2) {
+    let a = clamp(activity, 0.0, 1.0);
+    color = mix(color, activityColor(a), a * 0.85);
+    brightness = brightness * (1.0 + a * 3.0);
+    sizePx = sizePx * (1.0 + a * 1.3);
+  }
+
   if (inCircuit) {
     if (circuitIn) { color = COLOR_CIRCUIT_IN; }
     else if (circuitOut) { color = COLOR_CIRCUIT_OUT; }

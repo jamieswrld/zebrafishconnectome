@@ -195,7 +195,10 @@ export function ExperimentView() {
           return;
         }
         rendererRef.current = renderer;
-        renderer.setColorMode('activity');
+        // Cell-type colouring as the base, with activity modulating it: an
+        // inactive HMI cell should look like any other neuron, and the circuit
+        // should be visible as a small thing inside a large one.
+        renderer.setColorMode('cell-type');
         renderer.setActivityEnabled(true);
         if (optionsRef.current.bench) renderer.setContinuousRendering(true);
 
@@ -227,6 +230,37 @@ export function ExperimentView() {
         // Cache the HMI cells' indices in the loaded population so the view
         // modes can mask on them without rebuilding the map every time.
         hmiIndicesRef.current = experiment.activityUpdate().indices;
+
+        // Frame on the circuit, not the whole volume.
+        //
+        // setNeuronIndex frames the entire population, which leaves 865 HMI
+        // cells as an unreadable smudge inside a 30,346-soma cloud. Expanding
+        // the circuit's own bounds keeps the surrounding anatomy visible - the
+        // contrast between a small circuit and a large nervous system is the
+        // point - while making the circuit the subject.
+        const min: [number, number, number] = [Infinity, Infinity, Infinity];
+        const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+        for (const target of hmiIndicesRef.current) {
+          const world = renderer.worldPositionOf(target);
+          if (!world) continue;
+          for (let axis = 0; axis < 3; axis++) {
+            if (world[axis] < min[axis]) min[axis] = world[axis];
+            if (world[axis] > max[axis]) max[axis] = world[axis];
+          }
+        }
+        if (Number.isFinite(min[0])) {
+          const margin = 0.55;
+          const expand = (lo: number, hi: number, i: number): [number, number] => {
+            const pad = (hi - lo) * margin;
+            return [lo - pad, hi + pad];
+          };
+          const [x0, x1] = expand(min[0], max[0], 0);
+          const [y0, y1] = expand(min[1], max[1], 1);
+          const [z0, z1] = expand(min[2], max[2], 2);
+          renderer.frameBounds([x0, y0, z0], [x1, y1, z1]);
+        }
+        // The axis box competes with the anatomy in a scientific view.
+        renderer.setShowAxes(false);
 
         setReady(true);
         lastFrameRef.current = performance.now();
