@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { loadReferenceBody } from '@/body/placement';
+import { computeBodyPlacement, loadReferenceBody, neuronBoundsRender } from '@/body/placement';
+import { composeTRS, mat4, multiply, type Mat4, type Vec3f } from '@/renderer/math';
+import {
+  DEFAULT_MORPHOLOGY_CLASSES,
+  residentMorphology,
+  useMorphologyStore,
+} from '@/state/morphologyStore';
 import { DataError, toDataError } from '@/core/errors';
 import type { HmiCircuit, HmiPopulations } from '@/core/hmi';
 import type { NeuronIndex } from '@/core/types';
@@ -74,6 +80,15 @@ export function ExperimentView() {
   const lastUiRef = useRef(0);
   const lastActivityRef = useRef(0);
   const lastFlowRef = useRef(0);
+  /** Dataset render space -> body rest space, so neurons ride the animal. */
+  /** Body rest space -> dataset render space, computed once from the index. */
+  const bodyPlacement = useRef<Mat4>(mat4());
+  const headingMatrix = useRef<Mat4>(mat4());
+  const bodyMatrix = useRef<Mat4>(mat4());
+  const identityMatrix = useRef<Mat4>(mat4());
+  const neuronBounds = useRef<{ min: Vec3f; max: Vec3f } | null>(null);
+  const bodyBounds = useRef<{ min: Vec3f; max: Vec3f } | null>(null);
+  const scaleRef = useRef<'brain' | 'animal'>('brain');
   const trailRef = useRef<[number, number][]>([]);
   const indexRef = useRef<NeuronIndex | null>(null);
   const hmiIndicesRef = useRef<Int32Array>(new Int32Array(0));
@@ -93,6 +108,9 @@ export function ExperimentView() {
   const [pickedOutsideCircuit, setPickedOutsideCircuit] = useState(false);
   const [tick, setTick] = useState(0);
   const [signalFlow, setSignalFlow] = useState(false);
+  const [bodyMode, setBodyMode] = useState<'off' | 'ghost' | 'tissue' | 'solid'>('ghost');
+  const [scale, setScale] = useState<'brain' | 'animal'>('brain');
+  const morphology = useMorphologyStore();
   const signalFlowRef = useRef(false);
   const [stats, setStats] = useState<RendererStats | null>(null);
   const [uploadCount, setUploadCount] = useState(0);
@@ -204,6 +222,10 @@ export function ExperimentView() {
 
         const { geometry } = await loadReferenceBody();
         if (disposed) return;
+        // One model: the animal, with its brain inside it. The body is drawn
+        // translucent so the measured anatomy stays visible through it.
+        renderer.setBodyGeometry(geometry);
+        renderer.setBodyDisplayMode('ghost');
         const embodied = new EmbodiedRuntime({ bones: geometry.bones, seed: config.seed });
 
         // The structural dataset gives the HMI cells somewhere to be drawn.
@@ -231,6 +253,27 @@ export function ExperimentView() {
         // modes can mask on them without rebuilding the map every time.
         hmiIndicesRef.current = experiment.activityUpdate().indices;
 
+        // The brain stays put and the BODY is placed around it.
+        //
+        // The alternative - moving the measured anatomy out into tank
+        // coordinates with the animal - is mathematically equivalent but
+        // useless to look at: the reconstructed region is 275 um across inside
+        // a 4 mm animal, so the brain collapses to a speck and the camera has
+        // to sit closer than its own minimum orbit distance. Keeping the
+        // connectome in its own render space means the measured coordinates
+        // are never rewritten and the subject stays the right size on screen.
+        // Where the animal actually is in the tank is shown in the 2D view.
+        if (index) {
+          const placement = computeBodyPlacement(index, geometry);
+          bodyPlacement.current.set(placement.modelMatrix);
+          renderer.setBodyModelMatrix(placement.modelMatrix);
+          neuronBounds.current = neuronBoundsRender(index);
+          bodyBounds.current = placement.boundsRender ?? null;
+        }
+
+        void useMorphologyStore.getState().loadManifest();
+        useMorphologyStore.getState().setVisible(DEFAULT_MORPHOLOGY_CLASSES);
+
         // Frame on the circuit, not the whole volume.
         //
         // setNeuronIndex frames the entire population, which leaves 865 HMI
@@ -248,17 +291,33 @@ export function ExperimentView() {
             if (world[axis] > max[axis]) max[axis] = world[axis];
           }
         }
-        if (Number.isFinite(min[0])) {
-          const margin = 0.55;
-          const expand = (lo: number, hi: number, i: number): [number, number] => {
-            const pad = (hi - lo) * margin;
-            return [lo - pad, hi + pad];
-          };
-          const [x0, x1] = expand(min[0], max[0], 0);
-          const [y0, y1] = expand(min[1], max[1], 1);
-          const [z0, z1] = expand(min[2], max[2], 2);
-          renderer.frameBounds([x0, y0, z0], [x1, y1, z1]);
+        // Two framings, because the model has two scales worth seeing: the
+        // brain, and the animal carrying it.
+        renderer.camera.applyPreset({
+          id: 'organism',
+          label: 'ORGANISM',
+          yaw: 0.7,
+          pitch: 0.42,
+        });
+        if (neuronBounds.current) {
+          const b = neuronBounds.current;
+          const pad = 0.35;
+          renderer.frameBounds(
+            [
+              b.min[0] - (b.max[0] - b.min[0]) * pad,
+              b.min[1] - (b.max[1] - b.min[1]) * pad,
+              b.min[2] - (b.max[2] - b.min[2]) * pad,
+            ],
+            [
+              b.max[0] + (b.max[0] - b.min[0]) * pad,
+              b.max[1] + (b.max[1] - b.min[1]) * pad,
+              b.max[2] + (b.max[2] - b.min[2]) * pad,
+            ],
+          );
+          renderer.camera.snap();
         }
+        void min;
+        void max;
         // The axis box competes with the anatomy in a scientific view.
         renderer.setShowAxes(false);
 
@@ -301,6 +360,20 @@ export function ExperimentView() {
               renderer.setActivitySparse(activity.indices, activity.values);
             }
           }
+
+          // The animal turns and its tail beats; the brain it carries does not
+          // move relative to it. Yaw is applied about the dataset origin, which
+          // computeRenderTransform already centres on the population.
+          composeTRS(headingMatrix.current, [0, 0, 0], -snap.runtime.body.heading, 1);
+          multiply(bodyMatrix.current, headingMatrix.current, bodyPlacement.current);
+          renderer.setBodyModelMatrix(bodyMatrix.current);
+          renderer.setBodyPose(snap.runtime.body.pose);
+
+          // Morphology is already in dataset render space, so it needs no
+          // transform - the same space the soma live in, by construction.
+          const store = useMorphologyStore.getState();
+          void store.ensureLoaded(renderer, indexRef.current);
+          renderer.setExtraMeshDraws(store.draws(identityMatrix.current));
 
           const position = snap.runtime.body.position;
           const trail = trailRef.current;
@@ -405,6 +478,33 @@ export function ExperimentView() {
     viewModeRef.current = viewMode;
     applyViewMask(viewMode);
   }, [viewMode, applyViewMask]);
+
+  /**
+   * Frames either the brain or the whole animal, from real geometry.
+   *
+   * The brain framing is padded, because traced morphology reaches well beyond
+   * the soma that own it - the spinal projection neurons send axons toward the
+   * cord, far outside any bounding box drawn around cell bodies.
+   */
+  const applyScale = useCallback((next: 'brain' | 'animal') => {
+    scaleRef.current = next;
+    const renderer = rendererRef.current;
+    const bounds = next === 'brain' ? neuronBounds.current : bodyBounds.current;
+    if (!renderer || !bounds) return;
+    const pad = next === 'brain' ? 0.35 : 0.05;
+    const min: Vec3f = [0, 0, 0];
+    const max: Vec3f = [0, 0, 0];
+    for (let axis = 0; axis < 3; axis++) {
+      const margin = (bounds.max[axis] - bounds.min[axis]) * pad;
+      min[axis] = bounds.min[axis] - margin;
+      max[axis] = bounds.max[axis] + margin;
+    }
+    renderer.frameBounds(min, max);
+  }, []);
+
+  useEffect(() => {
+    applyScale(scale);
+  }, [scale, applyScale]);
 
   useEffect(() => {
     signalFlowRef.current = signalFlow;
@@ -599,6 +699,99 @@ export function ExperimentView() {
           <p className="faint" style={{ fontSize: 10.5, margin: '6px 0 0' }}>
             {CONTROLLER_MODE_INFO[mode].description}
           </p>
+        </section>
+
+        <section className="panel-section">
+          <div className="panel-section__head">
+            <span className="label">The animal</span>
+            <span className="badge">ONE MODEL</span>
+          </div>
+          <div className="btn-row">
+            {(['off', 'ghost', 'tissue', 'solid'] as const).map((mode) => (
+              <button
+                key={mode}
+                className={`btn${bodyMode === mode ? ' btn--active' : ''}`}
+                onClick={() => {
+                  setBodyMode(mode);
+                  rendererRef.current?.setBodyDisplayMode(mode);
+                }}
+              >
+                {mode.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className="btn-row">
+            {(['brain', 'animal'] as const).map((s) => (
+              <button
+                key={s}
+                className={`btn${scale === s ? ' btn--active' : ''}`}
+                onClick={() => setScale(s)}
+              >
+                {s === 'brain' ? 'BRAIN' : 'WHOLE ANIMAL'}
+              </button>
+            ))}
+          </div>
+          <p className="faint" style={{ fontSize: 10.5, margin: '6px 0 0' }}>
+            The body is MODELED reference anatomy. The brain inside it is measured.
+          </p>
+        </section>
+
+        <section className="panel-section">
+          <div className="panel-section__head">
+            <span className="label">Traced morphology</span>
+            <span className="badge badge--real">MEASURED</span>
+          </div>
+          {morphology.manifest ? (
+            <>
+              <div className="btn-row">
+                {Object.keys(morphology.manifest.classes)
+                  .filter((c) => c !== 'unclassified')
+                  .map((className) => (
+                    <button
+                      key={className}
+                      className={`btn${morphology.visible.includes(className) ? ' btn--active' : ''}`}
+                      onClick={() => morphology.toggleClass(className)}
+                      title={`${morphology.manifest!.classes[className].cells} reconstructed cells`}
+                    >
+                      {className}
+                    </button>
+                  ))}
+              </div>
+              <div className="slider-row">
+                <span className="label">Surface opacity</span>
+                <span className="num">{morphology.opacity.toFixed(2)}</span>
+                <input
+                  className="range"
+                  type="range"
+                  min={0.05}
+                  max={1}
+                  step={0.05}
+                  value={morphology.opacity}
+                  onChange={(e) => morphology.setOpacity(Number(e.target.value))}
+                />
+              </div>
+              <dl className="kv" style={{ gridTemplateColumns: '104px 1fr' }}>
+                <dt>Resident</dt>
+                <dd className="num">
+                  {residentMorphology(morphology.loaded).cells} cells ·{' '}
+                  {residentMorphology(morphology.loaded).triangles.toLocaleString()} tris
+                </dd>
+                <dt>Detail</dt>
+                <dd>
+                  level {morphology.manifest.lod} of 3{' '}
+                  <span className="faint">decimated from the release</span>
+                </dd>
+              </dl>
+              <p className="faint" style={{ fontSize: 10.5, margin: '6px 0 0' }}>
+                Reconstructed surfaces of the actual traced neurons, keyed by the same cell ids
+                whose measured connectivity drives the simulation. Loaded per class on demand.
+              </p>
+            </>
+          ) : (
+            <p className="faint" style={{ fontSize: 11 }}>
+              {morphology.error ?? 'Loading reconstructed morphology…'}
+            </p>
+          )}
         </section>
 
         <section className="panel-section">

@@ -1,0 +1,104 @@
+{
+  "dataset": "fish1-hmi",
+  "version": "v1",
+  "generatedAt": "2026-09-30T05:35:50.297864+00:00",
+  "lod": 3,
+  "space": "fish1-source",
+  "voxelSizeNm": [
+    8.0,
+    8.0,
+    30.0
+  ],
+  "totals": {
+    "cells": 552,
+    "vertices": 767946,
+    "triangles": 1339129,
+    "bytes": 20741360
+  },
+  "classes": {
+    "F": {
+      "file": "/datasets/fish1-hmi/v1/morphology/F.mor",
+      "cells": 1,
+      "vertices": 1228,
+      "triangles": 2033,
+      "bytes": 32952
+    },
+    "I": {
+      "file": "/datasets/fish1-hmi/v1/morphology/I.mor",
+      "cells": 89,
+      "vertices": 95346,
+      "triangles": 165718,
+      "bytes": 2570152
+    },
+    "II": {
+      "file": "/datasets/fish1-hmi/v1/morphology/II.mor",
+      "cells": 90,
+      "vertices": 100351,
+      "triangles": 173893,
+      "bytes": 2698392
+    },
+    "I_or_II": {
+      "file": "/datasets/fish1-hmi/v1/morphology/I_or_II.mor",
+      "cells": 82,
+      "vertices": 74075,
+      "triangles": 127633,
+      "bytes": 1984816
+    },
+    "L-2": {
+      "file": "/datasets/fish1-hmi/v1/morphology/L_2.mor",
+      "cells": 30,
+      "vertices": 52024,
+      "triangles": 90007,
+      "bytes": 1396160
+    },
+    "P": {
+      "file": "/datasets/fish1-hmi/v1/morphology/P.mor",
+      "cells": 79,
+      "vertices": 118604,
+      "triangles": 209049,
+      "bytes": 3228784
+    },
+    "R": {
+      "file": "/datasets/fish1-hmi/v1/morphology/R.mor",
+      "cells": 83,
+      "vertices": 116968,
+      "triangles": 202323,
+      "bytes": 3138648
+    },
+    "SPN_forward": {
+      "file": "/datasets/fish1-hmi/v1/morphology/SPN_forward.mor",
+      "cells": 19,
+      "vertices": 55807,
+      "triangles": 99264,
+      "bytes": 1528912
+    },
+    "SPN_turning": {
+      "file": "/datasets/fish1-hmi/v1/morphology/SPN_turning.mor",
+      "cells": 28,
+      "vertices": 80438,
+      "triangles": 141700,
+      "bytes": 2186792
+    },
+    "other": {
+      "file": "/datasets/fish1-hmi/v1/morphology/other.mor",
+      "cells": 48,
+      "vertices": 71238,
+      "triangles": 124393,
+      "bytes": 1925784
+    },
+    "unclassified": {
+      "file": "/datasets/fish1-hmi/v1/morphology/unclassified.mor",
+      "cells": 3,
+      "vertices": 1867,
+      "triangles": 3116,
+      "bytes": 49968
+    }
+  },
+  "missing": [
+    97584
+  ],
+  "provenance": "measured",
+  "source": "gs://fish1-public/hindbrain_reconstructions/",
+  "citation": "Petkova, M. D., Januszewski, M., et al. (2025). A connectomic resource for neural cataloguing and circuit dissection of the larval zebrafish brain. bioRxiv.",
+  "note": "Reconstructed surface morphology of real Fish1 neurons, decimated from the published multi-resolution meshes. Segment ids are the same stable cell ids used by the HMI circuit artefact, so a mesh here is the shape of a cell whose measured connectivity drives the simulation."
+}

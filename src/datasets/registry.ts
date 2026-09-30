@@ -33,38 +33,48 @@ export interface DatasetOption {
   readonly isRealBiology: boolean;
 }
 
-/** Datasets offered in the UI picker, in display order. */
+/**
+ * Datasets offered in the UI, in display order.
+ *
+ * ONE MODEL. This application is about a single animal - Fish1, and the brain
+ * inside it - so the interface offers that animal and nothing that competes
+ * with it. Synthetic populations are not biology and must never sit in a picker
+ * beside a real one where a reader could take them for alternatives; other
+ * datasets are different animals entirely.
+ *
+ * The full CAVE export is the SAME animal at greater coverage, so it belongs
+ * here, and it appears only once a token is configured (see datasetIsAvailable).
+ * Everything else remains reachable by explicit id for benchmarks and
+ * development - see BENCHMARK_SIZES below - but is not presented as a choice.
+ */
 export const DATASET_OPTIONS: readonly DatasetOption[] = [
   {
     id: FISH1_RELEASED_ID,
-    label: 'FISH1 · PUBLISHED',
-    note: 'Real Fish1 soma and synapses from the released circuit analysis. HMI region, no credentials needed.',
+    label: 'FISH1',
+    note: 'The animal. Measured soma, synapses and reconstructed morphology from the published Fish1 release. No credentials needed.',
     isRealBiology: true,
   },
   {
     id: FISH1_DATASET_ID,
-    label: 'FISH1 · FULL (CAVE)',
-    note: 'Whole-brain structural connectome. Requires a CAVE token and a pipeline export.',
+    label: 'FISH1 · FULL COVERAGE',
+    note: 'The same animal, whole brain. Requires a CAVE token and a pipeline export.',
     isRealBiology: true,
   },
-  {
-    id: 'dev-sample',
-    label: 'DEVELOPMENT SAMPLE',
-    note: 'Synthetic stand-in with the real schema. Not biology.',
-    isRealBiology: false,
-  },
+];
+
+/**
+ * Adapters that exist but are deliberately absent from the interface.
+ *
+ * Kept registered because the benchmark harness and the data-provenance page
+ * both need them by id; kept out of the picker because they are not this model.
+ */
+export const UNLISTED_DATASETS: readonly { id: string; reason: string }[] = [
+  { id: 'dev-sample', reason: 'Synthetic stand-in with the real schema. Not biology.' },
   {
     id: 'zapbench',
-    label: 'ZAPBENCH',
-    note: 'Functional recordings. Not ingested in this build.',
-    isRealBiology: true,
+    reason: 'A different animal. No cell-level correspondence to Fish1 exists.',
   },
-  {
-    id: 'firewire',
-    label: 'FIRE&WIRE',
-    note: 'Restricted. No access configured.',
-    isRealBiology: true,
-  },
+  { id: 'firewire', reason: 'Restricted. No access configured.' },
 ];
 
 registerAdapter(FISH1_RELEASED_ID, () => new Fish1ReleasedAdapter());
