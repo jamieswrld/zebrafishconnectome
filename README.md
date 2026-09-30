@@ -206,6 +206,64 @@ itself is still executed by the procedural body model: `MOTOR PLANT PROCEDURAL`.
 
 ---
 
+## One model
+
+There is one animal here. The site shows that animal and nothing that competes
+with it: the dataset picker lists Fish1 alone, because synthetic populations are
+not biology and must never sit beside a real one as an alternative, and other
+datasets are other animals. The organism view is the whole model — the body
+around the brain, the real traced neurons inside it, the circuit running.
+
+### The actual neurons
+
+The release publishes its hindbrain reconstructions as a neuroglancer
+precomputed segmentation at `gs://fish1-public/hindbrain_reconstructions/`,
+keyed by **the same stable cell ids** as the HMI dataframe. So a mesh there is
+the reconstructed shape of a cell whose measured connectivity already drives the
+simulation.
+
+`npm run build:morphology` extracts **552 cells: 767,946 vertices, 1.34M
+triangles**, grouped per published class and loaded on demand. You can see the
+Class I integrators, the crossing Class II population, and the spinal projection
+neurons' axons streaming toward the cord.
+
+Those meshes also confirm the Phase 2 scale correction independently: the EM
+volume's own `info` file gives mip0 as **8 × 8 × 30 nm over 280000 × 65000 ×
+8689** — exactly the value Phase 2 derived against the release prose.
+
+Nothing is mirrored. The pipeline fetches at build time and ships a decimated
+derivative — the release's coarsest published level, ~1,100 vertices per cell
+instead of 138,000 — with attribution and citation attached to the artefact.
+
+---
+
+## The agent
+
+An agent watches the organism, writes about what it sees, and **asks before it
+changes anything**. The console shows every turn it takes while it takes it.
+
+| Capability | Effect | Approval |
+|---|---|---|
+| `site.read` | reads the running simulation's own state | no |
+| `site.draft` | writes a note into its workspace | no |
+| `site.publish` | **puts a note on the site** | **yes** |
+| `social.compose` | drafts text for a platform, locally | no |
+
+**It cannot post to any platform, because no code in this application can.**
+There is no executor that sends anything anywhere. `social.compose` writes into
+a local workspace; a person copies it out and posts it themselves. Automated
+posting would breach platform terms, need real credentials, and act on real
+people under your name — queueing does the same work and leaves the accountable
+act with you. A test asserts the absence rather than trusting the sentence.
+
+There is no language model in the loop either: the agent assembles notes from
+values the run actually produced, and the console shows those values beside the
+text.
+
+See [docs/AGENT_CONSOLE.md](docs/AGENT_CONSOLE.md).
+
+---
+
 ## Datasets
 
 | Dataset                      | Real?        | Credentials | Coverage                                        |

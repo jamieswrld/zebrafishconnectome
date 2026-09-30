@@ -39,7 +39,7 @@ describe.runIf(available)('traced morphology artefact', () => {
   const circuit = loadCircuit();
 
   it('is labelled measured, decimated, and carries its citation', () => {
-    expect(manifest!.provenance ?? 'measured').toBe('measured');
+    expect(manifest!.provenance).toBe('measured');
     expect(manifest!.citation.length).toBeGreaterThan(10);
     expect(manifest!.source).toMatch(/fish1-public/);
     // Level of detail must be stated: this is not the full reconstruction.

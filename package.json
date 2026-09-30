@@ -25,7 +25,9 @@
     "neural:sweep": "node --import ./scripts/register-loader.mjs scripts/sweep-neural.mjs",
     "smoke:experiment": "node scripts/smoke-experiment.mjs",
     "smoke:integration": "node scripts/smoke-integration.mjs",
-    "benchmark:neural": "node scripts/benchmark-neural.mjs"
+    "benchmark:neural": "node scripts/benchmark-neural.mjs",
+    "build:morphology": "python pipeline/fish1/hmi/build_morphology.py",
+    "smoke:agent": "node scripts/smoke-agent.mjs"
   },
   "dependencies": {
     "next": "^15.5.4",

@@ -93,6 +93,35 @@ export interface CapabilityExecutor {
   execute(request: CapabilityRequest): Promise<unknown>;
 }
 
+/**
+ * A request held for a human decision.
+ *
+ * The gateway can already say "this needs approval"; this is what makes that
+ * answer mean something. Nothing here executes until a person says so, and
+ * every entry carries the reason the agent gave for wanting it.
+ */
+export interface PendingApproval {
+  readonly request: CapabilityRequest;
+  readonly definition: CapabilityDefinition;
+  /** A short human-readable preview of what would happen. */
+  readonly preview: string;
+}
+
+/** A one-line preview of a request, for the approval queue. */
+export function describeRequest(request: CapabilityRequest): string {
+  const args = request.arguments;
+  if (args && typeof args === 'object') {
+    const record = args as Record<string, unknown>;
+    for (const key of ['title', 'summary', 'text', 'body', 'message']) {
+      const value = record[key];
+      if (typeof value === 'string' && value.length > 0) {
+        return value.length > 160 ? `${value.slice(0, 157)}…` : value;
+      }
+    }
+  }
+  return `${request.capabilityId}.${request.action}`;
+}
+
 /** Keys that must never cross the gateway in either direction. */
 const FORBIDDEN_KEY = /(token|secret|password|api[-_]?key|authorization|cookie|credential)/i;
 
@@ -123,6 +152,8 @@ interface RegisteredCapability {
 export class CapabilityGateway {
   private capabilities = new Map<string, RegisteredCapability>();
   private sequence = 0;
+
+  private queue: PendingApproval[] = [];
 
   constructor(private readonly events: AgentEventBus) {}
 
@@ -162,6 +193,77 @@ export class CapabilityGateway {
 
   nextRequestId(): string {
     return `cap-${++this.sequence}`;
+  }
+
+  /* ------------------------------------------------------ approval queue */
+
+  /** Requests waiting on a human, oldest first. */
+  pending(): readonly PendingApproval[] {
+    return this.queue;
+  }
+
+  /**
+   * Approves a queued request and runs it.
+   *
+   * Deliberately the only path from `pending-approval` to execution: an agent
+   * cannot approve its own request, because it has no reference to this method
+   * and the queue is keyed by an id the gateway issued.
+   */
+  async approve(requestId: string, now: number): Promise<CapabilityResult | null> {
+    const index = this.queue.findIndex((p) => p.request.id === requestId);
+    if (index < 0) return null;
+    const [entry] = this.queue.splice(index, 1);
+    const capability = this.capabilities.get(entry.request.capabilityId);
+    if (!capability?.executor) {
+      return {
+        requestId,
+        status: 'failed',
+        reason: 'No executor is bound to this capability in this build.',
+      };
+    }
+
+    this.events.emit({
+      type: 'external_action_approved',
+      timestamp: now,
+      summary: `${entry.request.capabilityId}.${entry.request.action} approved by a human`,
+      payload: { requestId },
+    });
+
+    try {
+      const result = await capability.executor.execute(entry.request);
+      capability.recentExecutions.push(now);
+      this.events.emit({
+        type: 'external_action_executed',
+        timestamp: now,
+        summary: `${entry.request.capabilityId}.${entry.request.action} executed`,
+        payload: { requestId },
+      });
+      return { requestId, status: 'executed', reason: 'Approved and completed.', result };
+    } catch (e) {
+      return {
+        requestId,
+        status: 'failed',
+        reason: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+
+  /** Rejects a queued request. The reason is recorded, not discarded. */
+  deny(requestId: string, reason: string, now: number): boolean {
+    const index = this.queue.findIndex((p) => p.request.id === requestId);
+    if (index < 0) return false;
+    const [entry] = this.queue.splice(index, 1);
+    this.events.emit({
+      type: 'external_action_denied',
+      timestamp: now,
+      summary: `${entry.request.capabilityId}.${entry.request.action} denied by a human: ${reason}`,
+      payload: { requestId, reason },
+    });
+    return true;
+  }
+
+  clearQueue(): void {
+    this.queue = [];
   }
 
   /**
@@ -243,6 +345,20 @@ export class CapabilityGateway {
     });
 
     const verdict = this.evaluate(request, now);
+
+    if (verdict.status === 'pending-approval') {
+      const definition = this.capabilities.get(request.capabilityId)?.definition;
+      if (definition) {
+        this.queue.push({ request, definition, preview: describeRequest(request) });
+      }
+      this.events.emit({
+        type: 'external_action_requested',
+        timestamp: now,
+        summary: `${request.capabilityId}.${request.action} is waiting for approval`,
+        payload: { verdict },
+      });
+      return verdict;
+    }
 
     if (verdict.status !== 'approved') {
       this.events.emit({

@@ -66,6 +66,8 @@ export interface MorphologyManifest {
       }
     >
   >;
+  /** Always 'measured': these are reconstructed surfaces, not a model. */
+  readonly provenance: 'measured';
   readonly citation: string;
   readonly source: string;
   readonly note: string;

@@ -29,6 +29,10 @@ import { BrainRenderer } from '@/renderer/BrainRenderer';
 import { detectGpuSupport } from '@/renderer/types';
 import { resolveAdapter, DEFAULT_DATASET_ID } from '@/datasets/registry';
 import type { RendererStats } from '@/renderer/BrainRenderer';
+import { SiteAgent, type AgentActivity, type AgentStep } from '@/agent/agent';
+import { AgentWorkspace, type Draft } from '@/agent/capabilities';
+import type { PendingApproval } from '@/embodiment/capabilities';
+import { AgentConsole } from './AgentConsole';
 import { ErrorNotice, InfoNotice } from './Badges';
 import { HmiNeuronInspector } from './HmiNeuronInspector';
 import { DecisionTimeline } from './DecisionTimeline';
@@ -89,6 +93,8 @@ export function ExperimentView() {
   const neuronBounds = useRef<{ min: Vec3f; max: Vec3f } | null>(null);
   const bodyBounds = useRef<{ min: Vec3f; max: Vec3f } | null>(null);
   const scaleRef = useRef<'brain' | 'animal'>('brain');
+  const agentRef = useRef<SiteAgent | null>(null);
+  const snapshotRef = useRef<ExperimentSnapshot | null>(null);
   const trailRef = useRef<[number, number][]>([]);
   const indexRef = useRef<NeuronIndex | null>(null);
   const hmiIndicesRef = useRef<Int32Array>(new Int32Array(0));
@@ -110,6 +116,12 @@ export function ExperimentView() {
   const [signalFlow, setSignalFlow] = useState(false);
   const [bodyMode, setBodyMode] = useState<'off' | 'ghost' | 'tissue' | 'solid'>('ghost');
   const [scale, setScale] = useState<'brain' | 'animal'>('brain');
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentActivity, setAgentActivity] = useState<AgentActivity>('stopped');
+  const [agentSteps, setAgentSteps] = useState<readonly AgentStep[]>([]);
+  const [pending, setPending] = useState<readonly PendingApproval[]>([]);
+  const [drafts, setDrafts] = useState<readonly Draft[]>([]);
   const morphology = useMorphologyStore();
   const signalFlowRef = useRef(false);
   const [stats, setStats] = useState<RendererStats | null>(null);
@@ -274,6 +286,30 @@ export function ExperimentView() {
         void useMorphologyStore.getState().loadManifest();
         useMorphologyStore.getState().setVisible(DEFAULT_MORPHOLOGY_CLASSES);
 
+        // The agent observes the same runtime the page does, through the same
+        // capability gateway the organism uses for anything external.
+        agentRef.current = new SiteAgent({
+          gateway: embodied.capabilities,
+          events: embodied.events,
+          workspace: new AgentWorkspace(),
+          source: {
+            observe: () => {
+              const current = snapshotRef.current;
+              if (!current) return { ready: false };
+              return {
+                simulationTime: current.runtime.simulationTime,
+                connectomeCoupled: current.connectomeCoupled,
+                decisionVariable: current.populations?.decisionVariable ?? 0,
+                threshold: current.populations?.threshold ?? 0,
+                lastAction: current.intent?.action ?? 'none',
+                coherence: current.evidence.coherence,
+                distanceTravelledMm: current.runtime.body.distanceTravelled,
+                boutState: current.runtime.body.boutState,
+              };
+            },
+          },
+        });
+
         // Frame on the circuit, not the whole volume.
         //
         // setNeuronIndex frames the entire population, which leaves 865 HMI
@@ -397,9 +433,19 @@ export function ExperimentView() {
             renderer.setOverlayLines(current.signalFlow((i) => renderer.worldPositionOf(i)));
           }
 
+          snapshotRef.current = snap;
+          const agent = agentRef.current;
+          if (agent) void agent.tick(now / 1000, snap);
+
           if (now - lastUiRef.current > 1000 / UI_HZ) {
             lastUiRef.current = now;
             setSnapshot(snap);
+            if (agent) {
+              setAgentActivity(agent.currentActivity());
+              setAgentSteps([...agent.history()]);
+              setDrafts([...agent.workspace.all()]);
+              setPending([...embodied.capabilities.pending()]);
+            }
             if (optionsRef.current.debug) setUploadCount(renderer.lastActivityUploadCount());
             // Refresh the inspected cell so its rate and trace stay live.
             const following = current.neuronTrace.following();
@@ -572,6 +618,62 @@ export function ExperimentView() {
     [config, apply],
   );
 
+  /* ------------------------------------------------------------- agent */
+
+  const refreshAgent = useCallback(() => {
+    const agent = agentRef.current;
+    const experiment = experimentRef.current;
+    if (!agent || !experiment) return;
+    setAgentActivity(agent.currentActivity());
+    setAgentSteps([...agent.history()]);
+    setDrafts([...agent.workspace.all()]);
+    setPending([...experiment.gateway().pending()]);
+    setAgentRunning(agent.isRunning());
+  }, []);
+
+  const startAgent = useCallback(() => {
+    agentRef.current?.start(performance.now() / 1000);
+    refreshAgent();
+  }, [refreshAgent]);
+
+  const stopAgent = useCallback(() => {
+    agentRef.current?.stop();
+    refreshAgent();
+  }, [refreshAgent]);
+
+  const approve = useCallback(
+    (requestId: string) => {
+      const experiment = experimentRef.current;
+      if (!experiment) return;
+      void experiment
+        .gateway()
+        .approve(requestId, performance.now() / 1000)
+        .then(refreshAgent);
+    },
+    [refreshAgent],
+  );
+
+  const deny = useCallback(
+    (requestId: string) => {
+      const experiment = experimentRef.current;
+      if (!experiment) return;
+      experiment
+        .gateway()
+        .deny(requestId, 'Declined by the operator.', performance.now() / 1000);
+      refreshAgent();
+    },
+    [refreshAgent],
+  );
+
+  const compose = useCallback(
+    (platform: string) => {
+      void agentRef.current
+        ?.composePost(performance.now() / 1000, snapshotRef.current, platform)
+        .then(refreshAgent);
+    },
+    [refreshAgent],
+  );
+
   const download = useCallback(() => {
     const experiment = experimentRef.current;
     if (!experiment) return;
@@ -651,8 +753,19 @@ export function ExperimentView() {
     );
   }
 
+  const capabilityRows =
+    experimentRef.current
+      ?.gateway()
+      .list()
+      .map((entry) => ({
+        id: entry.definition.id,
+        name: entry.definition.name,
+        mode: entry.mode,
+        risk: entry.definition.risk,
+      })) ?? [];
+
   return (
-    <div className="experiment">
+    <div className={`experiment${agentOpen ? ' experiment--agent' : ''}`}>
       {/* ------------------------------------------------------- controls */}
       <aside className="panel panel--left" aria-label="Experiment controls">
         <section className="panel-section">
@@ -932,6 +1045,14 @@ export function ExperimentView() {
             </button>
           </div>
           <div className="btn-row">
+            <button
+              className={`btn btn--block${agentOpen ? ' btn--active' : ''}`}
+              onClick={() => setAgentOpen((open) => !open)}
+            >
+              {agentOpen ? 'HIDE AGENT CONSOLE' : 'SHOW AGENT CONSOLE'}
+            </button>
+          </div>
+          <div className="btn-row">
             <button className="btn btn--block" onClick={download} disabled={!ready}>
               DOWNLOAD RESULT (JSON)
             </button>
@@ -1168,6 +1289,21 @@ export function ExperimentView() {
           </section>
         </aside>
       )}
+      {agentOpen ? (
+        <AgentConsole
+          running={agentRunning}
+          activity={agentActivity}
+          steps={agentSteps}
+          pending={pending}
+          drafts={drafts}
+          capabilities={capabilityRows}
+          onStart={startAgent}
+          onStop={stopAgent}
+          onApprove={approve}
+          onDeny={deny}
+          onCompose={compose}
+        />
+      ) : null}
       <span className="sr-only">{tick}</span>
     </div>
   );

@@ -1218,3 +1218,78 @@ a:hover {
   background: var(--panel-inset);
   border: 1px solid var(--border);
 }
+
+/* ========================================================================== */
+/* Agent console                                                              */
+/* ========================================================================== */
+
+.agent-log {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.agent-log li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-log li:last-child {
+  border-bottom: none;
+}
+
+.agent-log__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.agent-log__activity {
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  color: var(--text-ghost);
+}
+
+.agent-log__summary {
+  font-size: 11px;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+.agent-log__meta {
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.agent-draft {
+  margin: 6px 0 0;
+  padding: 6px 7px;
+  max-height: 150px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text-dim);
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* The organism gains a fourth column when the agent console is open. */
+.experiment--agent {
+  grid-template-columns:
+    var(--panel-width-left) 1fr var(--panel-width-right)
+    var(--panel-width-right);
+}
+
+@media (max-width: 1500px) {
+  .experiment--agent {
+    grid-template-columns: var(--panel-width-left) 1fr var(--panel-width-right);
+  }
+  .experiment--agent .agent-console {
+    display: none;
+  }
+}

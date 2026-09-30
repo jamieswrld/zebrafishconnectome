@@ -616,6 +616,11 @@ export class VisualMotionExperiment {
     };
   }
 
+  /** The capability gateway this organism acts through. */
+  gateway() {
+    return this.embodied.capabilities;
+  }
+
   neuralRuntime(): HmiNeuralRuntime {
     return this.neural;
   }
