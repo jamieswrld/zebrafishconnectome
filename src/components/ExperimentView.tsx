@@ -480,7 +480,11 @@ export function ExperimentView() {
 
       if (requested === 'all') {
         renderer.applyVisibilityMask(new Uint8Array(index.count).fill(1));
-        renderer.setGlobalDim(0);
+        // 1, not 0: globalDim MULTIPLIES brightness, so zero paints every
+        // visible neuron black. Full brightness is what "show the whole brain"
+        // means, and this ran only once the index had loaded — which is why the
+        // viewport went dark some loads and not others.
+        renderer.setGlobalDim(1);
         return;
       }
 
